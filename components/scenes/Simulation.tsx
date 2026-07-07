@@ -13,9 +13,47 @@ import {
 } from "lucide-react";
 import { Assistant } from "@/components/ui/Assistant";
 import { Slider } from "@/components/ui/slider";
-import { activeVertical } from "@/lib/content";
+import { activeVertical, projectionForCap } from "@/lib/content";
 import { useFlowStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+function ForecastBar({
+  label,
+  pct,
+  warnBelow,
+}: {
+  label: string;
+  pct: number;
+  warnBelow: number;
+}) {
+  const warn = pct < warnBelow;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs text-sim-muted">{label}</span>
+        <span
+          className={cn(
+            "font-mono text-xs font-semibold tabular-nums",
+            warn ? "text-amber-400" : "text-emerald-400"
+          )}
+        >
+          {pct}%
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-sim-bg">
+        <motion.div
+          className={cn(
+            "h-full rounded-full",
+            warn ? "bg-amber-400/80" : "bg-emerald-400/80"
+          )}
+          initial={false}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
+        />
+      </div>
+    </div>
+  );
+}
 
 const fmt = new Intl.NumberFormat("en-US");
 const money = new Intl.NumberFormat("en-US", {
@@ -50,6 +88,8 @@ export function Simulation() {
 
   const [frequencyCap, setFrequencyCap] = useState(stored.frequencyCap);
   const [priority, setPriority] = useState(stored.priority);
+
+  const projection = projectionForCap(activeVertical, frequencyCap);
 
   return (
     <section className="flex flex-1 flex-col bg-sim-bg text-sim-text">
@@ -226,6 +266,33 @@ export function Simulation() {
                 <p className="mt-3 text-xs leading-relaxed text-sim-muted">
                   {sim.frequencyCap.helper}
                 </p>
+
+                {/* Live forecast — reacts to the slider */}
+                <div className="mt-4 rounded-lg border border-sim-border bg-sim-bg/60 p-3.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="font-mono text-[0.65rem] tracking-[0.14em] text-sim-muted uppercase">
+                      {sim.forecast.label}
+                    </p>
+                    <p className="font-mono text-[0.65rem] text-sim-muted">
+                      avg. freq {projection.avgFrequency.toFixed(1)}/user
+                    </p>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <ForecastBar
+                      label="Unique reach"
+                      pct={projection.reachPct}
+                      warnBelow={70}
+                    />
+                    <ForecastBar
+                      label="Budget delivery"
+                      pct={projection.deliveryPct}
+                      warnBelow={100}
+                    />
+                  </div>
+                  <p className="mt-2.5 text-[0.65rem] leading-relaxed text-sim-muted/80">
+                    {sim.forecast.disclaimer}
+                  </p>
+                </div>
               </div>
 
               {/* Priority */}

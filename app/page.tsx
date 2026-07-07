@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ProgressStepper } from "@/components/ProgressStepper";
 import { Intro } from "@/components/scenes/Intro";
 import { Lesson } from "@/components/scenes/Lesson";
+import { Briefing } from "@/components/scenes/Briefing";
 import { Simulation } from "@/components/scenes/Simulation";
 import { Outcome } from "@/components/scenes/Outcome";
 import { Payoff } from "@/components/scenes/Payoff";
@@ -13,6 +14,7 @@ import type { SceneId } from "@/lib/content";
 const SCENES: Record<SceneId, React.ComponentType> = {
   intro: Intro,
   lesson: Lesson,
+  briefing: Briefing,
   simulation: Simulation,
   outcome: Outcome,
   payoff: Payoff,

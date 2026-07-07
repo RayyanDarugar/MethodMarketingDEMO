@@ -43,7 +43,11 @@ export function Intro() {
   };
 
   return (
-    <section className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-4 py-16 sm:px-6">
+    <section className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-4 py-16 sm:px-6">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-24 right-0 -z-10 size-[28rem] rounded-full bg-[radial-gradient(closest-side,var(--accent),transparent)] opacity-70"
+      />
       <motion.div variants={stagger} initial="hidden" animate="show">
         <motion.p
           variants={item}

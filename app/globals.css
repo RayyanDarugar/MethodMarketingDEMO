@@ -151,8 +151,18 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image: radial-gradient(
+      circle,
+      color-mix(in oklab, var(--foreground) 6%, transparent) 1px,
+      transparent 1px
+    );
+    background-size: 26px 26px;
   }
   html {
     @apply font-sans;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
   }
 }
