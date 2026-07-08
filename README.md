@@ -66,6 +66,26 @@ Generated modules flow through the same component layer: the store swaps the
 active `Vertical`, and every scene, assistant provider, and export reads from
 it. Nothing else changes.
 
+## Profiles & persistence
+
+A lightweight sign-in gate (name-based, demo auth) fronts the flow. The
+user's profile, their place in the flow, calibration answers, and a library
+of generated modules all persist through a single `StorageAdapter` seam
+(`lib/storage.ts`):
+
+- **With Supabase configured** (`NEXT_PUBLIC_SUPABASE_URL` +
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`; run `supabase/schema.sql` once in the SQL
+  editor): profiles, sessions, and modules live in the `mm_*` tables,
+  written with the browser-safe publishable key. Identity is a
+  device-generated UUID for now; real Supabase Auth tightens the RLS
+  policies later without touching the app.
+- **Without Supabase**: the same adapter interface backed by localStorage,
+  and the Supabase adapter also falls back per-call if the tables aren't
+  reachable.
+
+Reloading the page resumes exactly where the user left off; generated
+modules can be reopened from the Setup scene without regenerating.
+
 ## Develop
 
 ```bash

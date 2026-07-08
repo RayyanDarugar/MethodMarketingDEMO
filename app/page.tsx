@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ProgressStepper } from "@/components/ProgressStepper";
+import { Welcome } from "@/components/Welcome";
 import { Intro } from "@/components/scenes/Intro";
 import { Setup } from "@/components/scenes/Setup";
 import { Lesson } from "@/components/scenes/Lesson";
@@ -9,7 +11,7 @@ import { Briefing } from "@/components/scenes/Briefing";
 import { Simulation } from "@/components/scenes/Simulation";
 import { Outcome } from "@/components/scenes/Outcome";
 import { Payoff } from "@/components/scenes/Payoff";
-import { useCurrentScene } from "@/lib/store";
+import { useCurrentScene, useFlowStore } from "@/lib/store";
 import type { SceneId } from "@/lib/content";
 
 const SCENES: Record<SceneId, React.ComponentType> = {
@@ -24,8 +26,22 @@ const SCENES: Record<SceneId, React.ComponentType> = {
 
 export default function Home() {
   const scene = useCurrentScene();
+  const hydrated = useFlowStore((s) => s.hydrated);
+  const user = useFlowStore((s) => s.user);
   const reduceMotion = useReducedMotion();
   const ActiveScene = SCENES[scene];
+
+  useEffect(() => {
+    void useFlowStore.getState().hydrate();
+  }, []);
+
+  if (!hydrated) {
+    return <div className="min-h-dvh" aria-busy="true" />;
+  }
+
+  if (!user) {
+    return <Welcome />;
+  }
 
   return (
     <div className="flex min-h-dvh flex-col">

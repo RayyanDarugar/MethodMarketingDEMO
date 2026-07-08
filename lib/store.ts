@@ -7,9 +7,14 @@ import {
   activeVertical,
   defaultProfile,
 } from "@/lib/content";
-import { registerVertical } from "@/lib/verticals";
+import { storage, type UserProfile } from "@/lib/storage";
+import { getVertical, registerVertical } from "@/lib/verticals";
 
 interface FlowState {
+  /** True once persisted user/session state has been loaded. */
+  hydrated: boolean;
+  /** Signed-in user; null shows the Welcome screen. */
+  user: UserProfile | null;
   /** Index into SCENE_ORDER. */
   currentStep: number;
   /** How many times the user has launched the simulation this session. */
@@ -18,7 +23,7 @@ interface FlowState {
   profile: Profile;
   /**
    * The vertical this session teaches. Defaults to the static built-in;
-   * replaced at runtime when a module is generated.
+   * replaced at runtime when a module is generated or reopened.
    */
   vertical: Vertical;
   choices: {
@@ -26,6 +31,9 @@ interface FlowState {
     priority: string;
   };
 
+  hydrate: () => Promise<void>;
+  signIn: (name: string) => Promise<void>;
+  signOut: () => Promise<void>;
   goTo: (scene: SceneId) => void;
   next: () => void;
   setProfile: (questionId: string, values: string[]) => void;
@@ -44,12 +52,79 @@ const choicesFor = (vertical: Vertical) => ({
   priority: vertical.simulation.priority.default,
 });
 
-export const useFlowStore = create<FlowState>((set) => ({
+export const useFlowStore = create<FlowState>((set, get) => ({
+  hydrated: false,
+  user: null,
   currentStep: 0,
   runCount: 0,
   profile: defaultProfile(activeVertical.config),
   vertical: activeVertical,
   choices: choicesFor(activeVertical),
+
+  hydrate: async () => {
+    if (get().hydrated) return;
+    try {
+      const [user, session, modules] = await Promise.all([
+        storage.getUser(),
+        storage.getSession(),
+        storage.listModules(),
+      ]);
+      // Saved modules must be resolvable before the session can resume one.
+      for (const m of modules) registerVertical(m.vertical);
+
+      if (user && session) {
+        const vertical = getVertical(session.verticalId) ?? activeVertical;
+        set({
+          user,
+          profile: { ...defaultProfile(activeVertical.config), ...session.profile },
+          vertical,
+          currentStep: Math.min(
+            Math.max(session.step, 0),
+            SCENE_ORDER.length - 1
+          ),
+          choices: choicesFor(vertical),
+        });
+      } else if (user) {
+        set({ user });
+      }
+    } finally {
+      set({ hydrated: true });
+      // Persist the session on every subsequent change, best-effort.
+      useFlowStore.subscribe((s) => {
+        if (!s.user) return;
+        void storage.saveSession({
+          step: s.currentStep,
+          verticalId: s.vertical.id,
+          profile: s.profile,
+        });
+      });
+    }
+  },
+
+  signIn: async (name) => {
+    const user: UserProfile = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}`,
+      name: name.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    await storage.saveUser(user);
+    set({ user });
+  },
+
+  signOut: async () => {
+    await Promise.all([storage.clearUser(), storage.clearSession()]);
+    set({
+      user: null,
+      currentStep: 0,
+      runCount: 0,
+      profile: defaultProfile(activeVertical.config),
+      vertical: activeVertical,
+      choices: choicesFor(activeVertical),
+    });
+  },
 
   goTo: (scene) =>
     set({ currentStep: Math.max(0, SCENE_ORDER.indexOf(scene)) }),

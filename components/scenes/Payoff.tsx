@@ -301,6 +301,8 @@ function ArtifactPanel({ artifact }: { artifact: Artifact }) {
 export function Payoff() {
   const restart = useFlowStore((s) => s.restart);
   const profile = useFlowStore((s) => s.profile);
+  const user = useFlowStore((s) => s.user);
+  const runCount = useFlowStore((s) => s.runCount);
   const reduceMotion = useReducedMotion();
   const vertical = useVertical();
   const { payoff, config } = vertical;
@@ -512,9 +514,12 @@ export function Payoff() {
             <div>
               <p className="font-display text-lg tracking-tight">
                 {payoff.completion.title}
+                {user && ` — nice work, ${user.name.split(" ")[0]}.`}
               </p>
               <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
                 {payoff.completion.body}
+                {runCount > 0 &&
+                  ` Line item launched ${runCount === 1 ? "on the first attempt" : `in ${runCount} attempts`}.`}
               </p>
             </div>
           </div>

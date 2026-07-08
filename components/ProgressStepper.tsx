@@ -1,10 +1,83 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { PHASES, phaseForScene } from "@/lib/content";
 import { useCurrentScene, useFlowStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { Check } from "lucide-react";
+import { Check, LogOut } from "lucide-react";
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function AccountChip() {
+  const user = useFlowStore((s) => s.user);
+  const signOut = useFlowStore((s) => s.signOut);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  if (!user) return null;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Account: ${user.name}`}
+        className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        {initials(user.name) || "?"}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, y: 4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="absolute top-10 right-0 z-50 w-48 origin-top-right rounded-xl border border-border bg-card p-1.5 shadow-lg"
+          >
+            <p className="truncate px-2.5 py-1.5 text-sm font-semibold">
+              {user.name}
+            </p>
+            <p className="px-2.5 pb-1.5 text-xs text-muted-foreground">
+              Progress saved automatically
+            </p>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void signOut()}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <LogOut className="size-3.5" aria-hidden />
+              Sign out
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 export function ProgressStepper() {
   const scene = useCurrentScene();
@@ -26,6 +99,7 @@ export function ProgressStepper() {
           <span className="text-muted-foreground"> Marketing</span>
         </button>
 
+        <div className="flex items-center gap-3 sm:gap-4">
         <nav aria-label="Progress" className="flex items-center gap-1 sm:gap-2">
           {PHASES.map((phase, i) => {
             const state =
@@ -80,6 +154,8 @@ export function ProgressStepper() {
             );
           })}
         </nav>
+        <AccountChip />
+        </div>
       </div>
     </header>
   );

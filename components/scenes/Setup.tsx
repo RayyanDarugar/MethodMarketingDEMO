@@ -6,9 +6,11 @@ import {
   ArrowRight,
   Check,
   CircleAlert,
+  History,
   Loader2,
   Sparkles,
   Wand2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +18,7 @@ import {
   type ConfigQuestion,
   type Vertical,
 } from "@/lib/content";
+import { storage, type SavedModule } from "@/lib/storage";
 import { useFlowStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -139,13 +142,25 @@ export function Setup() {
   const [targetIndustry, setTargetIndustry] = useState("");
   const [targetRole, setTargetRole] = useState("");
   const [gen, setGen] = useState<GenState>({ status: "idle" });
+  const [savedModules, setSavedModules] = useState<SavedModule[]>([]);
   const stageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    void storage.listModules().then(setSavedModules);
     return () => {
       if (stageTimer.current) clearInterval(stageTimer.current);
     };
   }, []);
+
+  const reopenModule = (m: SavedModule) => {
+    setVertical(m.vertical);
+    next();
+  };
+
+  const removeModule = async (id: string) => {
+    setSavedModules((mods) => mods.filter((m) => m.id !== id));
+    await storage.deleteModule(id);
+  };
 
   const customReady =
     productName.trim() &&
@@ -181,6 +196,7 @@ export function Setup() {
         vertical?: Vertical;
         warnings?: string[];
         error?: string;
+        source?: "model" | "mock";
       } = await res.json();
 
       if (!res.ok || !data.vertical) {
@@ -189,6 +205,16 @@ export function Setup() {
       if (data.warnings?.length) {
         console.info("[generation]", data.warnings.join("\n"));
       }
+      // Save to the module library so it can be reopened without regenerating.
+      void storage.saveModule({
+        id: data.vertical.id,
+        industry: data.vertical.industry,
+        role: data.vertical.role,
+        productName: productName.trim(),
+        source: data.source ?? "mock",
+        createdAt: new Date().toISOString(),
+        vertical: data.vertical,
+      });
       setVertical(data.vertical);
       next();
     } catch (error) {
@@ -295,6 +321,47 @@ export function Setup() {
                 </span>
               </button>
             </div>
+
+            {savedModules.length > 0 && (
+              <div className="mt-4">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <History className="size-3.5" aria-hidden />
+                  Your saved modules
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {savedModules.map((m) => (
+                    <li
+                      key={m.id}
+                      className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => reopenModule(m)}
+                        disabled={generating}
+                        className="flex-1 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+                      >
+                        <span className="text-sm font-medium">
+                          {m.industry} — {m.role}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          for {m.productName} ·{" "}
+                          {new Date(m.createdAt).toLocaleDateString()}
+                          {m.source === "mock" && " · demo"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void removeModule(m.id)}
+                        aria-label={`Delete saved module ${m.industry} — ${m.role}`}
+                        className="rounded-md p-1 text-muted-foreground/60 transition-colors hover:text-risk focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      >
+                        <X className="size-3.5" aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <AnimatePresence initial={false}>
               {mode === "custom" && (
