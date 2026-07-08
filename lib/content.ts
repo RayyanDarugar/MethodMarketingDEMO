@@ -11,6 +11,7 @@
 
 export type SceneId =
   | "intro"
+  | "setup"
   | "lesson"
   | "briefing"
   | "simulation"
@@ -28,6 +29,7 @@ export interface Phase {
 /** Ordered scene sequence the store walks through. */
 export const SCENE_ORDER: SceneId[] = [
   "intro",
+  "setup",
   "lesson",
   "briefing",
   "simulation",
@@ -37,13 +39,62 @@ export const SCENE_ORDER: SceneId[] = [
 
 /** The persistent Learn → Simulate → Produce arc shown in the stepper. */
 export const PHASES: Phase[] = [
-  { id: "learn", label: "Learn", scenes: ["intro", "lesson"] },
+  { id: "learn", label: "Learn", scenes: ["intro", "setup", "lesson"] },
   { id: "simulate", label: "Simulate", scenes: ["briefing", "simulation", "outcome"] },
   { id: "produce", label: "Produce", scenes: ["payoff"] },
 ];
 
 export function phaseForScene(scene: SceneId): PhaseId {
   return PHASES.find((p) => p.scenes.includes(scene))?.id ?? "learn";
+}
+
+// ---------------------------------------------------------------------------
+// Setup — session calibration (demo: captured, lightly surfaced, not yet
+// used to branch content; a future version tunes depth and outputs to it)
+// ---------------------------------------------------------------------------
+
+export interface ConfigOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface ConfigQuestion {
+  id: string;
+  label: string;
+  helper?: string;
+  /** Allow multiple selections (e.g. goals). */
+  multi?: boolean;
+  options: ConfigOption[];
+  defaults: string[];
+}
+
+export interface ConfigContent {
+  eyebrow: string;
+  title: string;
+  subhead: string;
+  questions: ConfigQuestion[];
+  /** Honest footnote about what calibration does in this demo. */
+  note: string;
+  cta: string;
+}
+
+/** The user's answers, keyed by question id. */
+export type Profile = Record<string, string[]>;
+
+export function defaultProfile(config: ConfigContent): Profile {
+  return Object.fromEntries(
+    config.questions.map((q) => [q.id, [...q.defaults]])
+  );
+}
+
+/** Human-readable labels for a profile, in question order. */
+export function profileLabels(config: ConfigContent, profile: Profile): string[] {
+  return config.questions.flatMap((q) =>
+    (profile[q.id] ?? [])
+      .map((v) => q.options.find((o) => o.value === v)?.label)
+      .filter((l): l is string => Boolean(l))
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -279,11 +330,70 @@ export interface EmailCard {
   body: string[];
 }
 
+// --- Produce toolkit artifacts ---------------------------------------------
+
+export interface SequenceEmail {
+  /** e.g. "Day 0". */
+  day: string;
+  purpose: string;
+  subject: string;
+  body: string[];
+}
+
+export interface ScriptSection {
+  heading: string;
+  /** "you" lines are the script; "note" lines are coaching on why it works. */
+  lines: { speaker: "you" | "note"; text: string }[];
+}
+
+export type Artifact =
+  | {
+      kind: "emailSequence";
+      id: string;
+      label: string;
+      description: string;
+      emails: SequenceEmail[];
+    }
+  | {
+      kind: "callScript";
+      id: string;
+      label: string;
+      description: string;
+      scenario: string;
+      sections: ScriptSection[];
+    }
+  | {
+      kind: "landingPage";
+      id: string;
+      label: string;
+      description: string;
+      hero: { eyebrow: string; headline: string; subhead: string; cta: string };
+      valueProps: { title: string; body: string }[];
+    }
+  | {
+      kind: "ideas";
+      id: string;
+      label: string;
+      description: string;
+      ideas: { title: string; angle: string }[];
+    };
+
 export interface PayoffContent {
   headline: string;
   subhead: string;
   before: EmailCard;
   after: EmailCard;
+  toolkit: {
+    title: string;
+    subhead: string;
+    artifacts: Artifact[];
+  };
+  exporting: {
+    title: string;
+    body: string;
+    copyLabel: string;
+    downloadLabel: string;
+  };
   completion: { title: string; body: string };
   restartLabel: string;
 }
@@ -302,6 +412,7 @@ export interface Vertical {
     subhead: string;
     cta: string;
   };
+  config: ConfigContent;
   lesson: LessonContent;
   briefing: BriefingContent;
   simulation: SimulationConfig;
@@ -396,6 +507,64 @@ const adTechMedia: Vertical = {
     subhead:
       "In the next few minutes you'll learn how the industry works, run the job yourself in a simulated ad server, and see what that understanding does to your own output.",
     cta: "Start learning the role",
+  },
+
+  config: {
+    eyebrow: "Calibrate this session",
+    title: "Tell us who's learning, and why.",
+    subhead:
+      "Four questions. They shape how deep the lesson goes, how much the simulation hand-holds, and which artifacts you leave with.",
+    questions: [
+      {
+        id: "role",
+        label: "Who are you?",
+        options: [
+          { value: "marketer", label: "Marketer", description: "Growth, demand, content" },
+          { value: "founder", label: "Founder", description: "Wearing the GTM hat" },
+          { value: "consultant", label: "Consultant", description: "Parachuting into a vertical" },
+          { value: "sales", label: "Sales / GTM", description: "Carrying a number" },
+          { value: "student", label: "Student", description: "Building the skill early" },
+        ],
+        defaults: ["marketer"],
+      },
+      {
+        id: "experience",
+        label: "How well do you know ad-tech?",
+        helper: "Be honest — it only changes how much we explain.",
+        options: [
+          { value: "new", label: "Complete beginner", description: "Never touched it" },
+          { value: "some", label: "Know the acronyms", description: "Read about it, never worked it" },
+          { value: "adjacent", label: "Worked adjacent to it", description: "Skip the basics" },
+        ],
+        defaults: ["new"],
+      },
+      {
+        id: "team",
+        label: "Your team context",
+        options: [
+          { value: "solo", label: "Solo", description: "I am the marketing team" },
+          { value: "startup", label: "Early-stage team", description: "A few of us, many hats" },
+          { value: "agency", label: "Agency", description: "Producing for clients" },
+          { value: "inhouse", label: "In-house at scale", description: "Specialist on a big team" },
+        ],
+        defaults: ["solo"],
+      },
+      {
+        id: "goals",
+        label: "What are you here to produce?",
+        helper: "Pick everything that applies — the Produce step builds toward these.",
+        multi: true,
+        options: [
+          { value: "outbound", label: "Cold outbound", description: "Emails & sequences" },
+          { value: "calls", label: "Call scripts", description: "Openers & objections" },
+          { value: "web", label: "Web & landing copy", description: "Pages that convert" },
+          { value: "content", label: "Blogs & content", description: "Ideas with an angle" },
+        ],
+        defaults: ["outbound"],
+      },
+    ],
+    note: "In this demo, calibration is captured and carried through the session. The full product tunes lesson depth, simulation difficulty, and generated artifacts to these answers.",
+    cta: "Calibrate and start learning",
   },
 
   lesson: {
@@ -914,6 +1083,177 @@ const adTechMedia: Vertical = {
         "Atlas Cloud flags pacing drift per line item early enough that you're adjusting caps in week one — not negotiating makegoods in week five. And it models the [[programmatic]] revenue you're leaving on the table when a sponsorship line item over-serves.",
         "Worth 15 minutes against one of your live flights?",
       ],
+    },
+    toolkit: {
+      title: "The rest of your toolkit",
+      subhead:
+        "One session in the seat unlocks more than an email. Everything below is written in the campaign manager's own vocabulary — browse it, then take it with you.",
+      artifacts: [
+        {
+          kind: "emailSequence",
+          id: "sequence",
+          label: "Outbound sequence",
+          description:
+            "A three-touch sequence for campaign managers — each email hits a different pressure from the lesson.",
+          emails: [
+            {
+              day: "Day 0",
+              purpose: "Opener — pacing pain",
+              subject: "Pacing at 61% two weeks into flight",
+              body: [
+                "Hi Dana — when a [[line item]] is pacing at 61% mid-flight, every option is bad: loosen the [[frequency cap]] and burn budget on repeat impressions, or hold it and start drafting the [[makegood]] email.",
+                "Atlas Cloud flags pacing drift per line item early enough that you're adjusting caps in week one — not negotiating makegoods in week five.",
+                "Worth 15 minutes against one of your live flights?",
+              ],
+            },
+            {
+              day: "Day 3",
+              purpose: "Bump — the other leak",
+              subject: "The other half of the makegood math",
+              body: [
+                "Quick add to my last note — under-delivery isn't the only leak. When a sponsorship [[line item]] over-serves, it crowds out [[programmatic]] bids on the same placements. Money lost quietly, on the winning side of the contract.",
+                "Atlas Cloud shows both at once: delivery risk per line item, and the auction revenue your priority settings are costing you. One dashboard, both leaks.",
+                "15 minutes this week?",
+              ],
+            },
+            {
+              day: "Day 7",
+              purpose: "Breakup — seasonal urgency",
+              subject: "Closing the loop before Q4 flights",
+              body: [
+                "I'll stop here — but if Q4 insertion orders are stacking up on your desk, that's exactly when [[frequency cap]] and priority calls get made in a hurry and audited in January.",
+                "If [[pacing]] visibility becomes a priority, grab time whenever it suits. Good luck with the quarter either way.",
+              ],
+            },
+          ],
+        },
+        {
+          kind: "callScript",
+          id: "call",
+          label: "Call script",
+          description:
+            "A cold-call script with the coaching notes that explain why each beat lands with an ad-ops audience.",
+          scenario:
+            "You're calling Dana Okafor, senior campaign manager at a mid-size publisher. It's 2:30 on a Tuesday — after the morning pacing check, before the reporting calls.",
+          sections: [
+            {
+              heading: "Opener",
+              lines: [
+                {
+                  speaker: "you",
+                  text: "Hi Dana — Sam from Atlas Cloud. I know you're probably between a [[pacing]] check and a reporting call, so I'll take 30 seconds and you can decide if this is worth more.",
+                },
+                {
+                  speaker: "note",
+                  text: "Naming the rhythm of their day is the credibility moment — it buys the next sentence.",
+                },
+              ],
+            },
+            {
+              heading: "The hook",
+              lines: [
+                {
+                  speaker: "you",
+                  text: "We work with ad-ops teams who find out a [[line item]] is under-delivering in week four — when the only options left are loosening the [[frequency cap]] or eating a [[makegood]]. Atlas flags that drift in week one.",
+                },
+                {
+                  speaker: "note",
+                  text: "Every phrase is a decision they've lived. Don't explain the terms — using them correctly is the pitch.",
+                },
+              ],
+            },
+            {
+              heading: "Objection — “we already have reporting”",
+              lines: [
+                {
+                  speaker: "you",
+                  text: "Totally — most teams do. The gap is usually per-line-item drift alerts versus dashboards someone has to remember to check. When did your team last catch a pacing problem before the client asked about it?",
+                },
+                {
+                  speaker: "note",
+                  text: "Turn the objection into their own war story. Everyone in this seat has one.",
+                },
+              ],
+            },
+            {
+              heading: "Close",
+              lines: [
+                {
+                  speaker: "you",
+                  text: "Worth 15 minutes against one live flight? If it doesn't flag anything your dashboard didn't, that's the end of it.",
+                },
+                {
+                  speaker: "note",
+                  text: "A low-commitment, falsifiable ask — the opposite of “quick sync”.",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          kind: "landingPage",
+          id: "landing",
+          label: "Landing page",
+          description:
+            "Hero and value props for a page aimed squarely at ad operations — structure included, vocabulary native.",
+          hero: {
+            eyebrow: "For ad operations teams",
+            headline: "Catch pacing drift before it becomes a makegood",
+            subhead:
+              "Atlas Cloud watches every [[line item]] on every flight and flags delivery risk while there's still time to fix it — without loosening a single [[frequency cap]].",
+            cta: "See it on a live flight",
+          },
+          valueProps: [
+            {
+              title: "Per-line-item drift alerts",
+              body: "Know by week one which flights won't deliver — not week five, when the [[makegood]] email is already drafting itself.",
+            },
+            {
+              title: "Frequency waste model",
+              body: "See exactly how much spend is going to repeat impressions instead of new reach, at every cap setting.",
+            },
+            {
+              title: "Auction yield guard",
+              body: "Track the [[programmatic]] revenue your priority settings are quietly costing you.",
+            },
+          ],
+        },
+        {
+          kind: "ideas",
+          id: "blogs",
+          label: "Blog ideas",
+          description:
+            "Five posts a domain-blind marketer couldn't have pitched this morning — each with the angle that makes it land.",
+          ideas: [
+            {
+              title: "The real cost of a makegood (hint: it's not the free inventory)",
+              angle: "Position around the client-trust damage that follows under-delivery — the pain behind the pain.",
+            },
+            {
+              title: "The 15-minute frequency-cap audit",
+              angle: "A practical checklist campaign managers can run today. Earns bookmarks and backlinks from ad-ops communities.",
+            },
+            {
+              title: "Sponsorship priority is quietly eating your programmatic revenue",
+              angle: "Contrarian yield math — the piece revenue teams forward to ad ops with 'thoughts?'",
+            },
+            {
+              title: "What great buy-side reporting calls have in common",
+              angle: "Interview-driven; sourcing quotes from real campaign managers builds the expert network too.",
+            },
+            {
+              title: "From signed IO to live line item: the launch checklist",
+              angle: "Top-of-funnel SEO for 'insertion order to line item' searches — beginners in the role are your future users.",
+            },
+          ],
+        },
+      ],
+    },
+    exporting: {
+      title: "Take it with you",
+      body: "Export the whole session — glossary, pressures, the simulation's lesson, and every artifact — as a context pack you can paste into Claude and keep producing in this domain.",
+      copyLabel: "Copy as Claude context",
+      downloadLabel: "Download .md",
     },
     completion: {
       title: "Vertical complete",

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/Users/rayyandarugar/Coding Projects/MethodMarketing\" && rm -f v2-*.png && rm -rf .playwright-mcp && git add -A && git status --short)",
+      "Bash(git rm *)",
+      "Bash(git commit -m ' *)"
+    ],
+    "additionalDirectories": [
+      "/Users/rayyandarugar/Coding Projects/MethodMarketing"
+    ]
+  }
+}

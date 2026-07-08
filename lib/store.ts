@@ -1,11 +1,19 @@
 import { create } from "zustand";
-import { SCENE_ORDER, type SceneId, activeVertical } from "@/lib/content";
+import {
+  SCENE_ORDER,
+  type Profile,
+  type SceneId,
+  activeVertical,
+  defaultProfile,
+} from "@/lib/content";
 
 interface FlowState {
   /** Index into SCENE_ORDER. */
   currentStep: number;
   /** How many times the user has launched the simulation this session. */
   runCount: number;
+  /** Session calibration answers from the Setup scene. */
+  profile: Profile;
   choices: {
     frequencyCap: number;
     priority: string;
@@ -13,6 +21,7 @@ interface FlowState {
 
   goTo: (scene: SceneId) => void;
   next: () => void;
+  setProfile: (questionId: string, values: string[]) => void;
   setChoices: (choices: Partial<FlowState["choices"]>) => void;
   /** Store the launch decision and advance to the outcome. */
   launchSimulation: (choices: FlowState["choices"]) => void;
@@ -29,6 +38,7 @@ const initialChoices = () => ({
 export const useFlowStore = create<FlowState>((set) => ({
   currentStep: 0,
   runCount: 0,
+  profile: defaultProfile(activeVertical.config),
   choices: initialChoices(),
 
   goTo: (scene) =>
@@ -38,6 +48,9 @@ export const useFlowStore = create<FlowState>((set) => ({
     set((s) => ({
       currentStep: Math.min(s.currentStep + 1, SCENE_ORDER.length - 1),
     })),
+
+  setProfile: (questionId, values) =>
+    set((s) => ({ profile: { ...s.profile, [questionId]: values } })),
 
   setChoices: (choices) =>
     set((s) => ({ choices: { ...s.choices, ...choices } })),

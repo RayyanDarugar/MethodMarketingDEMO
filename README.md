@@ -19,11 +19,13 @@ The app is a scene-based flow on a single page. `currentStep` in the Zustand sto
 app/page.tsx                    scene switcher, reads currentStep
 app/layout.tsx                  fonts (Fraunces / Inter / IBM Plex Mono), globals
 components/ProgressStepper.tsx  persistent Learn → Simulate → Produce indicator
-components/scenes/              Intro, Lesson, Simulation, Outcome, Payoff
+components/scenes/              Intro, Setup, Lesson, Briefing, Simulation,
+                                Outcome, Payoff
 components/ui/Assistant.tsx     "I'm stuck" helper (swappable hint provider)
 lib/content.ts                  ALL content + decision logic, typed, per vertical
-lib/store.ts                    Zustand store: currentStep, simulation choices
-lib/assistant.ts                HintProvider seam (scripted now, model later)
+lib/store.ts                    Zustand store: currentStep, profile, sim choices
+lib/assistant.ts                provider seams: sim hints + lesson-card Q&A
+lib/export.ts                   Claude context pack + artifact markdown export
 ```
 
 ### The one rule that matters
