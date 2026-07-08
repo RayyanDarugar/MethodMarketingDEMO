@@ -1,4 +1,5 @@
-import { VERTICALS, type SceneId } from "@/lib/content";
+import { type SceneId } from "@/lib/content";
+import { getVertical } from "@/lib/verticals";
 
 /**
  * The seam between conversational UI and whatever produces answers.
@@ -34,7 +35,7 @@ export interface AssistantMessage {
 export type HintProvider = (req: AssistantRequest) => Promise<AssistantMessage>;
 
 export const scriptedHintProvider: HintProvider = async (req) => {
-  const vertical = VERTICALS.find((v) => v.id === req.verticalId);
+  const vertical = getVertical(req.verticalId);
   const lines = vertical?.assistant.lines ?? [];
   const index = Math.min(req.hintIndex, lines.length - 1);
   await delay(500);
@@ -89,7 +90,7 @@ function keywords(text: string): string[] {
 export const scriptedCardQuestionProvider: CardQuestionProvider = async (
   req
 ) => {
-  const vertical = VERTICALS.find((v) => v.id === req.verticalId);
+  const vertical = getVertical(req.verticalId);
   const card = vertical?.lesson.cards.find((c) => c.id === req.cardId);
   await delay(600 + Math.random() * 500);
 

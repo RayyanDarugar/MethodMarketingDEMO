@@ -3,8 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, BookOpen, MonitorPlay, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { activeVertical } from "@/lib/content";
-import { useFlowStore } from "@/lib/store";
+import { useFlowStore, useVertical } from "@/lib/store";
 
 const ARC = [
   {
@@ -27,7 +26,7 @@ const ARC = [
 export function Intro() {
   const next = useFlowStore((s) => s.next);
   const reduceMotion = useReducedMotion();
-  const { intro } = activeVertical;
+  const { intro } = useVertical();
 
   const stagger = {
     hidden: {},

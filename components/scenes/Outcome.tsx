@@ -8,12 +8,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  activeVertical,
-  evaluateSimulation,
-  priorityNote,
-} from "@/lib/content";
-import { useFlowStore } from "@/lib/store";
+import { evaluateSimulation, priorityNote } from "@/lib/content";
+import { useFlowStore, useVertical } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 function DeliveryBar({
@@ -57,8 +53,9 @@ export function Outcome() {
   const next = useFlowStore((s) => s.next);
   const reduceMotion = useReducedMotion();
 
-  const result = evaluateSimulation(activeVertical, choices);
-  const pNote = priorityNote(activeVertical, choices.priority);
+  const vertical = useVertical();
+  const result = evaluateSimulation(vertical, choices);
+  const pNote = priorityNote(vertical, choices.priority);
   const isWin = result.status === "win";
 
   const stagger = {

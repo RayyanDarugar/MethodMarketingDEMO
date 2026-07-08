@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  activeVertical,
   profileLabels,
   type Artifact,
   type EmailCard,
@@ -27,7 +26,7 @@ import {
   copyText,
   downloadMarkdown,
 } from "@/lib/export";
-import { useFlowStore } from "@/lib/store";
+import { useFlowStore, useVertical } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 /** Renders [[term]] markers from content as highlighted domain vocabulary. */
@@ -303,7 +302,8 @@ export function Payoff() {
   const restart = useFlowStore((s) => s.restart);
   const profile = useFlowStore((s) => s.profile);
   const reduceMotion = useReducedMotion();
-  const { payoff, config } = activeVertical;
+  const vertical = useVertical();
+  const { payoff, config } = vertical;
 
   const [activeArtifactId, setActiveArtifactId] = useState(
     payoff.toolkit.artifacts[0].id
@@ -328,7 +328,7 @@ export function Payoff() {
   };
 
   const copyContextPack = async () => {
-    if (await copyText(buildClaudeContext(activeVertical, profile))) {
+    if (await copyText(buildClaudeContext(vertical, profile))) {
       markCopied("context-pack");
     }
   };
@@ -336,7 +336,7 @@ export function Payoff() {
   const downloadContextPack = () => {
     downloadMarkdown(
       "method-marketing-adtech-context.md",
-      buildClaudeContext(activeVertical, profile)
+      buildClaudeContext(vertical, profile)
     );
     markCopied("download");
   };

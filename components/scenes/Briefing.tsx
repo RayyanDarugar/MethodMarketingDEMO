@@ -11,8 +11,8 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { activeVertical, type QuizQuestion } from "@/lib/content";
-import { useFlowStore } from "@/lib/store";
+import { type QuizQuestion } from "@/lib/content";
+import { useFlowStore, useVertical } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 function Quiz({ question }: { question: QuizQuestion }) {
@@ -90,7 +90,7 @@ function Quiz({ question }: { question: QuizQuestion }) {
 export function Briefing() {
   const next = useFlowStore((s) => s.next);
   const reduceMotion = useReducedMotion();
-  const { briefing, simulation } = activeVertical;
+  const { briefing, simulation } = useVertical();
 
   const stagger = {
     hidden: {},

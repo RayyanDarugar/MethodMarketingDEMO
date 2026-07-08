@@ -2,12 +2,13 @@
 
 import { motion } from "framer-motion";
 import { PHASES, phaseForScene } from "@/lib/content";
-import { useCurrentScene } from "@/lib/store";
+import { useCurrentScene, useFlowStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Check } from "lucide-react";
 
 export function ProgressStepper() {
   const scene = useCurrentScene();
+  const restart = useFlowStore((s) => s.restart);
   const activePhase = phaseForScene(scene);
   const activeIndex = PHASES.findIndex((p) => p.id === activePhase);
   const complete = scene === "payoff";
@@ -15,10 +16,15 @@ export function ProgressStepper() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
-        <span className="font-display text-lg tracking-tight">
+        <button
+          type="button"
+          onClick={restart}
+          aria-label="Restart from the beginning"
+          className="rounded-md font-display text-lg tracking-tight transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
           Method<span className="text-primary">*</span>
           <span className="text-muted-foreground"> Marketing</span>
-        </span>
+        </button>
 
         <nav aria-label="Progress" className="flex items-center gap-1 sm:gap-2">
           {PHASES.map((phase, i) => {

@@ -12,14 +12,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { cardQuestionProvider } from "@/lib/assistant";
 import {
-  activeVertical,
   type FlowStage,
   type LessonCard,
   type Pressure,
   type Term,
   type TimelineEntry,
 } from "@/lib/content";
-import { useFlowStore } from "@/lib/store";
+import { useFlowStore, useVertical } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -389,7 +388,8 @@ function CoachPanel({
 export function Lesson() {
   const next = useFlowStore((s) => s.next);
   const reduceMotion = useReducedMotion();
-  const { lesson } = activeVertical;
+  const vertical = useVertical();
+  const { lesson } = vertical;
   const cards = lesson.cards;
 
   const [openId, setOpenId] = useState<string>(cards[0].id);
@@ -411,7 +411,7 @@ export function Lesson() {
       [cardId]: [...(prev[cardId] ?? []), { question }],
     }));
     void cardQuestionProvider({
-      verticalId: activeVertical.id,
+      verticalId: vertical.id,
       cardId,
       question,
     }).then((answer) => {
@@ -424,13 +424,13 @@ export function Lesson() {
         ),
       }));
     });
-  }, []);
+  }, [vertical.id]);
 
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-10 sm:px-6">
       <div className="mb-8">
         <p className="mb-3 font-mono text-xs font-medium tracking-[0.18em] text-primary uppercase">
-          Learn · {activeVertical.industry}
+          Learn · {vertical.industry}
         </p>
         <h2 className="font-display text-3xl tracking-tight text-balance sm:text-4xl">
           {lesson.title}

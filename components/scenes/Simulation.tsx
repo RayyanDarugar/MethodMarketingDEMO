@@ -13,8 +13,8 @@ import {
 } from "lucide-react";
 import { Assistant } from "@/components/ui/Assistant";
 import { Slider } from "@/components/ui/slider";
-import { activeVertical, projectionForCap } from "@/lib/content";
-import { useFlowStore } from "@/lib/store";
+import { projectionForCap } from "@/lib/content";
+import { useFlowStore, useVertical } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 function ForecastBar({
@@ -83,13 +83,14 @@ export function Simulation() {
   const runCount = useFlowStore((s) => s.runCount);
   const reduceMotion = useReducedMotion();
 
-  const sim = activeVertical.simulation;
+  const vertical = useVertical();
+  const sim = vertical.simulation;
   const { campaign } = sim;
 
   const [frequencyCap, setFrequencyCap] = useState(stored.frequencyCap);
   const [priority, setPriority] = useState(stored.priority);
 
-  const projection = projectionForCap(activeVertical, frequencyCap);
+  const projection = projectionForCap(vertical, frequencyCap);
 
   return (
     <section className="flex flex-1 flex-col bg-sim-bg text-sim-text">
@@ -357,9 +358,9 @@ export function Simulation() {
       </div>
 
       <Assistant
-        verticalId={activeVertical.id}
+        verticalId={vertical.id}
         scene="simulation"
-        buttonLabel={activeVertical.assistant.buttonLabel}
+        buttonLabel={vertical.assistant.buttonLabel}
         getContext={() => ({ frequencyCap, priority })}
       />
     </section>

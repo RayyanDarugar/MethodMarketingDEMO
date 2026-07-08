@@ -18,14 +18,19 @@ The app is a scene-based flow on a single page. `currentStep` in the Zustand sto
 ```
 app/page.tsx                    scene switcher, reads currentStep
 app/layout.tsx                  fonts (Fraunces / Inter / IBM Plex Mono), globals
+app/api/generate/route.ts      on-demand module generation (Claude, structured output)
 components/ProgressStepper.tsx  persistent Learn → Simulate → Produce indicator
 components/scenes/              Intro, Setup, Lesson, Briefing, Simulation,
                                 Outcome, Payoff
 components/ui/Assistant.tsx     "I'm stuck" helper (swappable hint provider)
 lib/content.ts                  ALL content + decision logic, typed, per vertical
-lib/store.ts                    Zustand store: currentStep, profile, sim choices
+lib/store.ts                    Zustand store: currentStep, profile, active
+                                vertical, sim choices
+lib/verticals.ts                runtime registry (static + generated verticals)
 lib/assistant.ts                provider seams: sim hints + lesson-card Q&A
 lib/export.ts                   Claude context pack + artifact markdown export
+lib/generation/                 schema (zod wire format + validators), prompt
+                                (archetype contract + gold exemplar), mock
 ```
 
 ### The one rule that matters
@@ -42,10 +47,30 @@ The Assistant follows the same principle: `components/ui/Assistant.tsx` only kno
 
 Authentication and accounts, settings, multi-vertical selection UI, real model calls, persistence. Each has an obvious insertion point: vertical selection reads `VERTICALS`, hints swap the provider, persistence wraps the Zustand store.
 
+## On-demand generation
+
+The Setup scene offers a "Custom" target: the user names their product, a
+target industry, and a target role, and `POST /api/generate` produces a full
+`Vertical` for it — lesson, briefing, parameterized simulation, outcomes, and
+product-personalized artifacts — validated twice (zod schema + semantic checks
+like forecast/band consistency) with one validation-guided retry.
+
+- **With `ANTHROPIC_API_KEY`** (see `.env.example`): real generation via
+  Claude structured outputs, using the expert-authored ad-tech module as the
+  gold exemplar. `buildUserPrompt` has an `expertNotes` seam where a future
+  expert-knowledge database plugs in retrieved, validated facts.
+- **Without a key** (or `METHOD_GENERATION_MOCK=1`): demo mode — the built-in
+  module is re-skinned around the user's product so the flow stays demoable.
+
+Generated modules flow through the same component layer: the store swaps the
+active `Vertical`, and every scene, assistant provider, and export reads from
+it. Nothing else changes.
+
 ## Develop
 
 ```bash
 npm install
+cp .env.example .env.local   # optional — enables real generation
 npm run dev
 ```
 

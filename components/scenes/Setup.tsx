@@ -1,9 +1,21 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, Check } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+  ArrowRight,
+  Check,
+  CircleAlert,
+  Loader2,
+  Sparkles,
+  Wand2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { activeVertical, type ConfigQuestion } from "@/lib/content";
+import {
+  activeVertical,
+  type ConfigQuestion,
+  type Vertical,
+} from "@/lib/content";
 import { useFlowStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -73,10 +85,124 @@ function QuestionGroup({ question }: { question: ConfigQuestion }) {
   );
 }
 
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <input
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="mt-1 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus-visible:ring-2 focus-visible:ring-ring/60 disabled:opacity-50"
+      />
+    </label>
+  );
+}
+
+const GENERATION_STAGES = [
+  "Studying the role…",
+  "Drafting the lesson…",
+  "Parameterizing the simulation…",
+  "Calibrating decision bands…",
+  "Writing your artifacts…",
+  "Validating the module…",
+];
+
+type GenState =
+  | { status: "idle" }
+  | { status: "running"; stage: number }
+  | { status: "error"; message: string };
+
 export function Setup() {
   const next = useFlowStore((s) => s.next);
+  const profile = useFlowStore((s) => s.profile);
+  const setVertical = useFlowStore((s) => s.setVertical);
   const reduceMotion = useReducedMotion();
   const { config } = activeVertical;
+
+  const [mode, setMode] = useState<"builtin" | "custom">("builtin");
+  const [productName, setProductName] = useState("");
+  const [productDescription, setProductDescription] = useState("");
+  const [targetIndustry, setTargetIndustry] = useState("");
+  const [targetRole, setTargetRole] = useState("");
+  const [gen, setGen] = useState<GenState>({ status: "idle" });
+  const stageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (stageTimer.current) clearInterval(stageTimer.current);
+    };
+  }, []);
+
+  const customReady =
+    productName.trim() &&
+    productDescription.trim() &&
+    targetIndustry.trim() &&
+    targetRole.trim();
+
+  const generate = async () => {
+    setGen({ status: "running", stage: 0 });
+    stageTimer.current = setInterval(() => {
+      setGen((g) =>
+        g.status === "running"
+          ? { status: "running", stage: Math.min(g.stage + 1, GENERATION_STAGES.length - 1) }
+          : g
+      );
+    }, 2200);
+
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product: {
+            name: productName.trim(),
+            description: productDescription.trim(),
+          },
+          targetIndustry: targetIndustry.trim(),
+          targetRole: targetRole.trim(),
+          profile,
+        }),
+      });
+      const data: {
+        vertical?: Vertical;
+        warnings?: string[];
+        error?: string;
+      } = await res.json();
+
+      if (!res.ok || !data.vertical) {
+        throw new Error(data.error ?? "Generation failed.");
+      }
+      if (data.warnings?.length) {
+        console.info("[generation]", data.warnings.join("\n"));
+      }
+      setVertical(data.vertical);
+      next();
+    } catch (error) {
+      setGen({
+        status: "error",
+        message:
+          error instanceof Error ? error.message : "Generation failed.",
+      });
+    } finally {
+      if (stageTimer.current) clearInterval(stageTimer.current);
+    }
+  };
+
+  const generating = gen.status === "running";
 
   const stagger = {
     hidden: {},
@@ -120,13 +246,145 @@ export function Setup() {
           {config.questions.map((q) => (
             <QuestionGroup key={q.id} question={q} />
           ))}
+
+          {/* Target module */}
+          <fieldset>
+            <legend className="text-sm font-semibold">
+              What should this session teach?
+            </legend>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "builtin"}
+                onClick={() => setMode("builtin")}
+                disabled={generating}
+                className={cn(
+                  "rounded-xl border p-3.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+                  mode === "builtin"
+                    ? "border-primary/50 bg-accent"
+                    : "border-border bg-card hover:border-primary/35"
+                )}
+              >
+                <span className="text-sm font-medium">
+                  {activeVertical.industry} — {activeVertical.role}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Expert-authored module, ready now
+                </span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "custom"}
+                onClick={() => setMode("custom")}
+                disabled={generating}
+                className={cn(
+                  "rounded-xl border p-3.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+                  mode === "custom"
+                    ? "border-primary/50 bg-accent"
+                    : "border-border bg-card hover:border-primary/35"
+                )}
+              >
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  <Wand2 className="size-3.5 text-primary" aria-hidden />
+                  Custom — generate for my target
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Any industry, any role, built around your product
+                </span>
+              </button>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {mode === "custom" && (
+                <motion.div
+                  initial={reduceMotion ? false : { height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <TextField
+                      label="Your product"
+                      value={productName}
+                      onChange={setProductName}
+                      placeholder="e.g. Kana Agents"
+                      disabled={generating}
+                    />
+                    <TextField
+                      label="What it does (one line)"
+                      value={productDescription}
+                      onChange={setProductDescription}
+                      placeholder="e.g. Custom AI agents on your existing stack"
+                      disabled={generating}
+                    />
+                    <TextField
+                      label="Target industry"
+                      value={targetIndustry}
+                      onChange={setTargetIndustry}
+                      placeholder="e.g. Logistics / Freight"
+                      disabled={generating}
+                    />
+                    <TextField
+                      label="Target role"
+                      value={targetRole}
+                      onChange={setTargetRole}
+                      placeholder="e.g. Freight Dispatcher"
+                      disabled={generating}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </fieldset>
         </motion.div>
 
         <motion.div variants={item} className="mt-6">
-          <Button size="lg" className="h-11 px-6" onClick={next}>
-            {config.cta}
-            <ArrowRight data-icon="inline-end" aria-hidden />
-          </Button>
+          {mode === "builtin" ? (
+            <Button size="lg" className="h-11 px-6" onClick={next}>
+              {config.cta}
+              <ArrowRight data-icon="inline-end" aria-hidden />
+            </Button>
+          ) : generating ? (
+            <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-accent/50 px-4 py-3">
+              <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={gen.status === "running" ? gen.stage : "done"}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.2 }}
+                  className="text-sm font-medium"
+                  role="status"
+                >
+                  {gen.status === "running"
+                    ? GENERATION_STAGES[gen.stage]
+                    : "Almost there…"}
+                </motion.span>
+              </AnimatePresence>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                size="lg"
+                className="h-11 px-6"
+                disabled={!customReady}
+                onClick={() => void generate()}
+              >
+                <Sparkles data-icon="inline-start" aria-hidden />
+                Generate my module
+              </Button>
+              {gen.status === "error" && (
+                <p className="flex items-center gap-1.5 text-sm text-risk" role="alert">
+                  <CircleAlert className="size-4 shrink-0" aria-hidden />
+                  {gen.message}
+                </p>
+              )}
+            </div>
+          )}
           <p className="mt-3 max-w-xl text-xs leading-relaxed text-muted-foreground">
             {config.note}
           </p>
