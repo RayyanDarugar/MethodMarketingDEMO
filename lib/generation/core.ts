@@ -15,6 +15,7 @@ export function normalizePair(industry: string, role: string) {
 }
 
 export function stripPayoff(vertical: Vertical): VerticalCore {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { payoff: _payoff, ...core } = vertical;
   return core;
 }

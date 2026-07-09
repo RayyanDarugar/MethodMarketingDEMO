@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  CompletionFeedback,
+  SceneThumbs,
+} from "@/components/FeedbackControls";
+import {
   profileLabels,
   type Artifact,
   type EmailCard,
@@ -483,6 +487,9 @@ export function Payoff() {
               <p className="mt-1 max-w-lg text-sm leading-relaxed text-muted-foreground">
                 {payoff.exporting.body}
               </p>
+              <div className="mt-2">
+                <SceneThumbs scene="payoff" />
+              </div>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -521,6 +528,9 @@ export function Payoff() {
                 {runCount > 0 &&
                   ` Line item launched ${runCount === 1 ? "on the first attempt" : `in ${runCount} attempts`}.`}
               </p>
+              <div className="mt-3">
+                <CompletionFeedback />
+              </div>
             </div>
           </div>
           <Button

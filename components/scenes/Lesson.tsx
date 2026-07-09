@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SceneThumbs } from "@/components/FeedbackControls";
 import { cardQuestionProvider } from "@/lib/assistant";
 import {
   type FlowStage,
@@ -581,9 +582,12 @@ export function Lesson() {
       </div>
 
       <div className="mt-8 flex items-center justify-between gap-4">
-        <p className="text-xs text-muted-foreground">
-          {visited.size} of {cards.length} explored
-        </p>
+        <div className="flex flex-col gap-1.5">
+          <p className="text-xs text-muted-foreground">
+            {visited.size} of {cards.length} explored
+          </p>
+          <SceneThumbs scene="lesson" />
+        </div>
         <Button size="lg" className="h-11 px-6" onClick={next}>
           {lesson.cta}
           <ArrowRight data-icon="inline-end" aria-hidden />

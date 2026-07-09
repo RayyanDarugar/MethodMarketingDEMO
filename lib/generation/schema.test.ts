@@ -9,6 +9,7 @@ describe("GeneratedPayoffSchema", () => {
   });
 
   it("rejects a payoff missing artifacts", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { toolkit: _t, ...broken } = activeVertical.payoff;
     expect(GeneratedPayoffSchema.safeParse(broken).success).toBe(false);
   });

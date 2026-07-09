@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { Assistant } from "@/components/ui/Assistant";
+import { SceneThumbs } from "@/components/FeedbackControls";
 import { Slider } from "@/components/ui/slider";
 import { projectionForCap } from "@/lib/content";
 import { useFlowStore, useVertical } from "@/lib/store";
@@ -340,10 +341,13 @@ export function Simulation() {
             </div>
 
             <div className="flex items-center justify-between gap-4 border-t border-sim-border p-5 sm:px-6">
-              <p className="hidden text-xs text-sim-muted sm:block">
-                Delivery settings can be edited after launch — reputations
-                can&apos;t.
-              </p>
+              <div className="hidden sm:flex sm:flex-col sm:gap-1">
+                <p className="text-xs text-sim-muted">
+                  Delivery settings can be edited after launch — reputations
+                  can&apos;t.
+                </p>
+                <SceneThumbs scene="simulation" />
+              </div>
               <button
                 type="button"
                 onClick={() => launchSimulation({ frequencyCap, priority })}
