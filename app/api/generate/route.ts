@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { activeVertical, type Vertical } from "@/lib/content";
 import { mockGenerate } from "@/lib/generation/mock";
 import { buildSystemPrompt, buildUserPrompt } from "@/lib/generation/prompt";
@@ -34,39 +33,60 @@ interface GenerationSuccess {
   source: "model" | "mock";
 }
 
+/** Unwrap a ```json fenced block so a fenced reply doesn't burn a retry. */
+function stripFences(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  return match ? match[1] : trimmed;
+}
+
 async function generateWithModel(
-  request: GenerationRequest
+  request: GenerationRequest,
+  signal: AbortSignal
 ): Promise<GenerationSuccess> {
-  const client = new Anthropic();
+  // maxRetries: 0 — the SDK default (2) silently re-sends the whole request
+  // on connection errors/timeouts; each invisible retry is a full billed
+  // generation. Fail loudly instead.
+  const client = new Anthropic({ maxRetries: 0 });
   const systemPrompt = buildSystemPrompt();
   let previousErrors: string[] = [];
 
+  // GeneratedVerticalSchema exceeds the structured-outputs grammar-size limit
+  // (the API rejects it with a 400), so the output shape is enforced by the
+  // gold exemplar in the system prompt plus zod validation with retry.
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: 64000,
-      thinking: { type: "adaptive" },
-      // The system prompt embeds the large gold exemplar; cache it so the
-      // validation retry (and subsequent generations) reuse the prefix.
-      system: [
-        {
-          type: "text",
-          text: systemPrompt,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      output_config: {
-        format: zodOutputFormat(GeneratedVerticalSchema),
+    console.log(`[generate] attempt ${attempt}/${MAX_ATTEMPTS} starting`);
+    const stream = client.messages.stream(
+      {
+        model: MODEL,
+        max_tokens: 64000,
+        thinking: { type: "adaptive" },
+        // The system prompt embeds the large gold exemplar; cache it so the
+        // validation retry (and subsequent generations) reuse the prefix.
+        system: [
+          {
+            type: "text",
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: [
+          {
+            role: "user",
+            content: buildUserPrompt(request, { previousErrors }),
+          },
+        ],
       },
-      messages: [
-        {
-          role: "user",
-          content: buildUserPrompt(request, { previousErrors }),
-        },
-      ],
-    });
+      // Abort the generation if the browser disconnects (refresh, re-click,
+      // closed tab) — otherwise orphaned runs keep billing invisibly.
+      { signal }
+    );
 
     const message = await stream.finalMessage();
+    console.log(
+      `[generate] attempt ${attempt} done: stop_reason=${message.stop_reason}, usage=${JSON.stringify(message.usage)}`
+    );
 
     if (message.stop_reason === "refusal") {
       throw new Error("The model declined to generate this module.");
@@ -82,9 +102,10 @@ async function generateWithModel(
 
     let candidate: unknown;
     try {
-      candidate = JSON.parse(text);
+      candidate = JSON.parse(stripFences(text));
     } catch {
       previousErrors = ["Output was not valid JSON. Emit only the JSON object."];
+      console.warn(`[generate] attempt ${attempt} output was not valid JSON`);
       continue;
     }
 
@@ -93,6 +114,9 @@ async function generateWithModel(
       previousErrors = parsed.error.issues
         .slice(0, 20)
         .map((issue) => `${issue.path.join(".")}: ${issue.message}`);
+      console.warn(
+        `[generate] attempt ${attempt} failed schema validation:\n  ${previousErrors.join("\n  ")}`
+      );
       continue;
     }
 
@@ -100,6 +124,9 @@ async function generateWithModel(
     const { errors, warnings } = validateVertical(vertical);
     if (errors.length > 0) {
       previousErrors = errors;
+      console.warn(
+        `[generate] attempt ${attempt} failed semantic validation:\n  ${errors.join("\n  ")}`
+      );
       continue;
     }
 
@@ -134,9 +161,15 @@ export async function POST(req: Request) {
   try {
     const result: GenerationSuccess = useMock
       ? { ...(await mockGenerate(parsed.data)), source: "mock" }
-      : await generateWithModel(parsed.data);
+      : await generateWithModel(parsed.data, req.signal);
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof Anthropic.APIUserAbortError) {
+      // Client disconnected; the model call was cancelled. Nobody is
+      // listening for this response.
+      console.warn("[generate] aborted: client disconnected");
+      return NextResponse.json({ error: "Client disconnected." }, { status: 499 });
+    }
     if (error instanceof Anthropic.AuthenticationError) {
       return NextResponse.json(
         { error: "Anthropic API key is invalid. Check ANTHROPIC_API_KEY." },

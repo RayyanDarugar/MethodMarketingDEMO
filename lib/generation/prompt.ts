@@ -100,7 +100,7 @@ The following module (ad-tech/media, campaign manager) is expert-authored and sh
 
 ${exemplar}
 
-Return ONLY the JSON object conforming to the provided schema.`;
+Return ONLY the JSON object, matching the exemplar's wire format exactly — no markdown fences, no commentary before or after.`;
 }
 
 export interface PromptOptions {
