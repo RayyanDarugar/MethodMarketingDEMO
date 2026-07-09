@@ -207,6 +207,28 @@ const ArtifactSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+export const GeneratedPayoffSchema = z.object({
+  headline: z.string(),
+  subhead: z.string(),
+  before: EmailCardSchema,
+  after: EmailCardSchema,
+  toolkit: z.object({
+    title: z.string(),
+    subhead: z.string(),
+    artifacts: z.array(ArtifactSchema).min(3).max(4),
+  }),
+  exporting: z.object({
+    title: z.string(),
+    body: z.string(),
+    copyLabel: z.string(),
+    downloadLabel: z.string(),
+  }),
+  completion: z.object({ title: z.string(), body: z.string() }),
+  restartLabel: z.string(),
+});
+
+export type GeneratedPayoff = z.infer<typeof GeneratedPayoffSchema>;
+
 const OutcomeResultSchema = z.object({
   status: z.enum(["win", "risk"]),
   verdict: z.string(),
@@ -341,25 +363,7 @@ export const GeneratedVerticalSchema = z.object({
     buttonLabel: z.string(),
     lines: z.array(z.string()).min(1).max(3),
   }),
-  payoff: z.object({
-    headline: z.string(),
-    subhead: z.string(),
-    before: EmailCardSchema,
-    after: EmailCardSchema,
-    toolkit: z.object({
-      title: z.string(),
-      subhead: z.string(),
-      artifacts: z.array(ArtifactSchema).min(3).max(4),
-    }),
-    exporting: z.object({
-      title: z.string(),
-      body: z.string(),
-      copyLabel: z.string(),
-      downloadLabel: z.string(),
-    }),
-    completion: z.object({ title: z.string(), body: z.string() }),
-    restartLabel: z.string(),
-  }),
+  payoff: GeneratedPayoffSchema,
 });
 
 export type GeneratedVertical = z.infer<typeof GeneratedVerticalSchema>;
