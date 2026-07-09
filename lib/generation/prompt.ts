@@ -4,6 +4,7 @@ import {
   type Vertical,
 } from "@/lib/content";
 import type { GeneratedVertical, GenerationRequest } from "./schema";
+import type { VerticalCore } from "./core";
 
 /**
  * Prompt assembly for on-demand module generation.
@@ -101,6 +102,67 @@ The following module (ad-tech/media, campaign manager) is expert-authored and sh
 ${exemplar}
 
 Return ONLY the JSON object, matching the exemplar's wire format exactly — no markdown fences, no commentary before or after.`;
+}
+
+/**
+ * Payoff-only regeneration: the module core (lesson, simulation, outcomes…)
+ * came from the cache; only the product-personalized payoff is generated.
+ * Embeds just the payoff exemplar, so input stays ~10x smaller than the
+ * full-module system prompt.
+ */
+export function buildPayoffSystemPrompt(): string {
+  const exemplar = JSON.stringify(toWireFormat(activeVertical).payoff, null, 1);
+
+  return `You are the content engine for Method Marketing. A learning module for a target industry role already exists; you generate ONLY its "payoff" section, personalized to the requesting user's product.
+
+The payoff contains: a before/after email pair and a toolkit of 3-4 marketing artifacts (kinds: emailSequence, callScript, landingPage, ideas). The before email is generic AI-slop outreach for the user's product; the after email and every artifact are written in the target role's vocabulary, selling THEIR product to that role.
+
+Rules:
+- Substrings wrapped in [[double brackets]] render as highlighted domain vocabulary. Only wrap terms from the glossary provided in the request, and use them naturally — never explain them.
+- Write with craft: specific numbers, verbatim-sounding quotes, consequences a practitioner would recognize. No filler, no "delve", no exclamation marks.
+
+## Payoff exemplar
+
+The following payoff (ad-tech/media, campaign manager) shows the exact wire format, depth, and voice expected. Match its quality; do not copy its content.
+
+${exemplar}
+
+Return ONLY the payoff JSON object, matching the exemplar's wire format exactly — no markdown fences, no commentary before or after.`;
+}
+
+export function buildPayoffUserPrompt(args: {
+  request: GenerationRequest;
+  core: VerticalCore;
+  previousErrors?: string[];
+}): string {
+  const { request, core, previousErrors } = args;
+  const termsCard = core.lesson.cards.find((c) => c.kind === "terms");
+  const glossary =
+    termsCard?.kind === "terms"
+      ? termsCard.terms.map((t) => `${t.term}: ${t.definition}`)
+      : [];
+
+  const parts = [
+    `Generate the payoff for this module:`,
+    ``,
+    `Target industry: ${core.industry}`,
+    `Target role: ${core.role}`,
+    `The learner's product (all payoff artifacts market THIS): ${request.product.name} — ${request.product.description}`,
+    `The module's fictional tool (referenced, never sold): ${core.simulation.productName}`,
+    ``,
+    `Glossary the [[term]] markers may reference:`,
+    ...glossary.map((g) => `- ${g}`),
+  ];
+
+  if (previousErrors?.length) {
+    parts.push(
+      ``,
+      `Your previous attempt failed validation. Fix ALL of these and regenerate the full payoff object:`,
+      ...previousErrors.map((e) => `- ${e}`)
+    );
+  }
+
+  return parts.join("\n");
 }
 
 export interface PromptOptions {
