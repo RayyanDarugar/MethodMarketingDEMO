@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { PHASES, phaseForScene } from "@/lib/content";
 import { useCurrentScene, useFlowStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { Check, LogOut } from "lucide-react";
+import { BookOpen, Check, LogOut } from "lucide-react";
 
 function initials(name: string): string {
   return name
@@ -19,6 +19,7 @@ function initials(name: string): string {
 function AccountChip() {
   const user = useFlowStore((s) => s.user);
   const signOut = useFlowStore((s) => s.signOut);
+  const openDashboard = useFlowStore((s) => s.openDashboard);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -60,9 +61,21 @@ function AccountChip() {
             <p className="truncate px-2.5 py-1.5 text-sm font-semibold">
               {user.name}
             </p>
-            <p className="px-2.5 pb-1.5 text-xs text-muted-foreground">
-              Progress saved automatically
+            <p className="truncate px-2.5 pb-1.5 text-xs text-muted-foreground">
+              {user.email ?? "Progress saved automatically"}
             </p>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                openDashboard();
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <BookOpen className="size-3.5" aria-hidden />
+              My modules
+            </button>
             <button
               type="button"
               role="menuitem"

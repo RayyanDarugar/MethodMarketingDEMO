@@ -11,7 +11,16 @@ import type { Profile, Vertical } from "@/lib/content";
 export interface UserProfile {
   id: string;
   name: string;
+  email?: string | null;
   createdAt: string;
+}
+
+export interface SignInArgs {
+  mode: "signin" | "signup";
+  /** Required for signup; ignored on signin (profile name wins). */
+  name?: string;
+  email: string;
+  password: string;
 }
 
 export interface SavedModule {
@@ -36,6 +45,12 @@ export interface SessionSnapshot {
 
 export interface StorageAdapter {
   getUser(): Promise<UserProfile | null>;
+  /**
+   * Authenticate (or register) and return the account's profile. Throws
+   * with a user-facing message on failure — sign-in errors must surface,
+   * never silently fall back.
+   */
+  signIn(args: SignInArgs): Promise<UserProfile>;
   saveUser(user: UserProfile): Promise<void>;
   clearUser(): Promise<void>;
 
@@ -88,6 +103,28 @@ function remove(key: string) {
 const localStorageAdapter: StorageAdapter = {
   async getUser() {
     return read<UserProfile>(KEYS.user);
+  },
+  /**
+   * Device-local "account": no real auth, so the password is ignored. An
+   * existing profile with the same email is reclaimed; otherwise a new one
+   * is created (signin mode included — keyless dev shouldn't dead-end).
+   */
+  async signIn({ name, email }) {
+    const existing = read<UserProfile>(KEYS.user);
+    if (existing?.email?.toLowerCase() === email.toLowerCase()) {
+      return existing;
+    }
+    const user: UserProfile = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}`,
+      name: name?.trim() || email.split("@")[0],
+      email,
+      createdAt: new Date().toISOString(),
+    };
+    write(KEYS.user, user);
+    return user;
   },
   async saveUser(user) {
     write(KEYS.user, user);

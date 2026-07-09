@@ -7,7 +7,7 @@ import {
   activeVertical,
   defaultProfile,
 } from "@/lib/content";
-import { storage, type UserProfile } from "@/lib/storage";
+import { storage, type SignInArgs, type UserProfile } from "@/lib/storage";
 import { getVertical, registerVertical } from "@/lib/verticals";
 
 interface FlowState {
@@ -36,8 +36,14 @@ interface FlowState {
     priority: string;
   };
 
+  /** Module-library dashboard overlay (shown after sign-in / on return). */
+  showDashboard: boolean;
+  openDashboard: () => void;
+  closeDashboard: () => void;
+
   hydrate: () => Promise<void>;
-  signIn: (name: string) => Promise<void>;
+  /** Throws with a user-facing message on auth failure. */
+  signIn: (args: SignInArgs) => Promise<void>;
   signOut: () => Promise<void>;
   goTo: (scene: SceneId) => void;
   next: () => void;
@@ -91,9 +97,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             SCENE_ORDER.length - 1
           ),
           choices: choicesFor(vertical),
+          showDashboard: true,
         });
       } else if (user) {
-        set({ user });
+        set({ user, showDashboard: true });
       }
     } finally {
       set({ hydrated: true });
@@ -109,23 +116,20 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }
   },
 
-  signIn: async (name) => {
-    const user: UserProfile = {
-      id:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `${Date.now()}`,
-      name: name.trim(),
-      createdAt: new Date().toISOString(),
-    };
-    await storage.saveUser(user);
-    set({ user });
+  showDashboard: false,
+  openDashboard: () => set({ showDashboard: true }),
+  closeDashboard: () => set({ showDashboard: false }),
+
+  signIn: async (args) => {
+    const user: UserProfile = await storage.signIn(args);
+    set({ user, showDashboard: true });
   },
 
   signOut: async () => {
     await Promise.all([storage.clearUser(), storage.clearSession()]);
     set({
       user: null,
+      showDashboard: false,
       currentStep: 0,
       runCount: 0,
       profile: defaultProfile(activeVertical.config),

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Dashboard } from "@/components/Dashboard";
 import { ProgressStepper } from "@/components/ProgressStepper";
 import { Welcome } from "@/components/Welcome";
 import { Intro } from "@/components/scenes/Intro";
@@ -28,6 +29,7 @@ export default function Home() {
   const scene = useCurrentScene();
   const hydrated = useFlowStore((s) => s.hydrated);
   const user = useFlowStore((s) => s.user);
+  const showDashboard = useFlowStore((s) => s.showDashboard);
   const reduceMotion = useReducedMotion();
   const ActiveScene = SCENES[scene];
 
@@ -41,6 +43,17 @@ export default function Home() {
 
   if (!user) {
     return <Welcome />;
+  }
+
+  if (showDashboard) {
+    return (
+      <div className="flex min-h-dvh flex-col">
+        <ProgressStepper />
+        <main className="flex flex-1 flex-col">
+          <Dashboard />
+        </main>
+      </div>
+    );
   }
 
   return (

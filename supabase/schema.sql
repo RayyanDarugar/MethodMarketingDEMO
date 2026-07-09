@@ -93,3 +93,38 @@ create policy "demo anon access" on public.mm_module_cores
 drop policy if exists "demo anon access" on public.mm_feedback;
 create policy "demo anon access" on public.mm_feedback
   for all to anon using (true) with check (true);
+
+-- ---------------------------------------------------------------------------
+-- Email/password accounts via Supabase Auth (2026-07-09). mm_users.id now
+-- holds the auth.users id for new accounts; email enables cross-device
+-- sign-in. Policies must also cover the `authenticated` role — signed-in
+-- clients send their JWT, so their requests are no longer `anon`.
+-- Demo-grade: policies stay permissive; tighten to auth.uid() rules later.
+-- Also required: Supabase Dashboard → Authentication → disable "Confirm
+-- email" (or sign-ups stall waiting for a confirmation email).
+-- ---------------------------------------------------------------------------
+
+alter table public.mm_users add column if not exists email text;
+
+create unique index if not exists mm_users_email
+  on public.mm_users (lower(email)) where email is not null;
+
+drop policy if exists "demo anon access" on public.mm_users;
+create policy "demo anon access" on public.mm_users
+  for all to anon, authenticated using (true) with check (true);
+
+drop policy if exists "demo anon access" on public.mm_sessions;
+create policy "demo anon access" on public.mm_sessions
+  for all to anon, authenticated using (true) with check (true);
+
+drop policy if exists "demo anon access" on public.mm_modules;
+create policy "demo anon access" on public.mm_modules
+  for all to anon, authenticated using (true) with check (true);
+
+drop policy if exists "demo anon access" on public.mm_module_cores;
+create policy "demo anon access" on public.mm_module_cores
+  for all to anon, authenticated using (true) with check (true);
+
+drop policy if exists "demo anon access" on public.mm_feedback;
+create policy "demo anon access" on public.mm_feedback
+  for all to anon, authenticated using (true) with check (true);

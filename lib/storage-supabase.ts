@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type {
   SavedModule,
   SessionSnapshot,
+  SignInArgs,
   StorageAdapter,
   UserProfile,
 } from "@/lib/storage";
@@ -48,9 +49,62 @@ function warn(error: unknown) {
   }
 }
 
+/** Load (or lazily create) the mm_users profile row for an auth user. */
+async function profileForAuthUser(authUser: {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, unknown>;
+}): Promise<UserProfile> {
+  const db = supabase();
+  const { data, error } = await db
+    .from("mm_users")
+    .select("id, name, email, created_at")
+    .eq("id", authUser.id)
+    .maybeSingle();
+  if (error) throw error;
+  if (data) {
+    return {
+      id: data.id,
+      name: data.name,
+      email: data.email ?? authUser.email ?? null,
+      createdAt: data.created_at,
+    };
+  }
+  const profile: UserProfile = {
+    id: authUser.id,
+    name:
+      (typeof authUser.user_metadata?.name === "string" &&
+        authUser.user_metadata.name) ||
+      authUser.email?.split("@")[0] ||
+      "Learner",
+    email: authUser.email ?? null,
+    createdAt: new Date().toISOString(),
+  };
+  const { error: upsertError } = await db.from("mm_users").upsert({
+    id: profile.id,
+    name: profile.name,
+    email: profile.email,
+    created_at: profile.createdAt,
+  });
+  if (upsertError) throw upsertError;
+  return profile;
+}
+
 export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter {
   return {
     async getUser() {
+      // Real auth session first (email/password accounts).
+      try {
+        const { data } = await supabase().auth.getSession();
+        if (data.session?.user) {
+          const profile = await profileForAuthUser(data.session.user);
+          window.localStorage.setItem(USER_POINTER_KEY, profile.id);
+          return profile;
+        }
+      } catch (error) {
+        warn(error);
+      }
+      // Legacy pointer-based accounts (pre-auth demo identities).
       const id = pointer();
       // No cloud pointer — the user may still exist in the fallback store
       // (e.g. sign-in happened while the tables were unreachable).
@@ -58,16 +112,57 @@ export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter 
       try {
         const { data, error } = await supabase()
           .from("mm_users")
-          .select("id, name, created_at")
+          .select("id, name, email, created_at")
           .eq("id", id)
           .maybeSingle();
         if (error) throw error;
         if (!data) return null;
-        return { id: data.id, name: data.name, createdAt: data.created_at };
+        return {
+          id: data.id,
+          name: data.name,
+          email: data.email ?? null,
+          createdAt: data.created_at,
+        };
       } catch (error) {
         warn(error);
         return fallback.getUser();
       }
+    },
+
+    /**
+     * Email/password auth via Supabase Auth. Errors throw with a
+     * user-facing message — a wrong password must never silently create a
+     * device-local account.
+     */
+    async signIn({ mode, name, email, password }: SignInArgs) {
+      const auth = supabase().auth;
+      if (mode === "signup") {
+        const { data, error } = await auth.signUp({
+          email,
+          password,
+          options: { data: { name: name?.trim() } },
+        });
+        if (error) throw new Error(error.message);
+        if (!data.session || !data.user) {
+          throw new Error(
+            'Account created but needs email confirmation. Disable "Confirm email" in Supabase Auth settings for this demo.'
+          );
+        }
+        const profile = await profileForAuthUser(data.user);
+        window.localStorage.setItem(USER_POINTER_KEY, profile.id);
+        return profile;
+      }
+      const { data, error } = await auth.signInWithPassword({ email, password });
+      if (error) {
+        throw new Error(
+          error.message === "Invalid login credentials"
+            ? "No account with that email and password. New here? Create an account."
+            : error.message
+        );
+      }
+      const profile = await profileForAuthUser(data.user);
+      window.localStorage.setItem(USER_POINTER_KEY, profile.id);
+      return profile;
     },
 
     async saveUser(user: UserProfile) {
@@ -75,6 +170,7 @@ export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter 
         const { error } = await supabase().from("mm_users").upsert({
           id: user.id,
           name: user.name,
+          email: user.email ?? null,
           created_at: user.createdAt,
         });
         if (error) throw error;
@@ -86,8 +182,13 @@ export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter 
     },
 
     async clearUser() {
-      // Signing out detaches the device from the account; the cloud row
-      // (and its saved modules) survive for a future real-auth reclaim.
+      // End the auth session; the account and its modules survive for the
+      // next sign-in.
+      try {
+        await supabase().auth.signOut();
+      } catch (error) {
+        warn(error);
+      }
       if (typeof window !== "undefined") {
         window.localStorage.removeItem(USER_POINTER_KEY);
       }
