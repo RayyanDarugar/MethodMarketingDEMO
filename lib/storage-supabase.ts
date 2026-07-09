@@ -145,7 +145,9 @@ export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter 
       try {
         const { data, error } = await supabase()
           .from("mm_modules")
-          .select("id, industry, role, product_name, source, vertical, created_at")
+          .select(
+            "id, industry, role, product_name, source, core_id, vertical, created_at"
+          )
           .eq("user_id", id)
           .order("created_at", { ascending: false })
           .limit(10);
@@ -156,6 +158,7 @@ export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter 
           role: row.role,
           productName: row.product_name,
           source: row.source as SavedModule["source"],
+          coreId: row.core_id ?? null,
           createdAt: row.created_at,
           vertical: row.vertical as Vertical,
         }));
@@ -176,6 +179,7 @@ export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter 
           role: module.role,
           product_name: module.productName,
           source: module.source,
+          core_id: module.coreId ?? null,
           vertical: module.vertical,
           created_at: module.createdAt,
         });

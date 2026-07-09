@@ -20,7 +20,9 @@ export interface SavedModule {
   industry: string;
   role: string;
   productName: string;
-  source: "model" | "mock";
+  source: "model" | "mock" | "cached";
+  /** Cache core this module was assembled from, for feedback attribution. */
+  coreId?: string | null;
   createdAt: string;
   vertical: Vertical;
 }

@@ -153,7 +153,7 @@ export function Setup() {
   }, []);
 
   const reopenModule = (m: SavedModule) => {
-    setVertical(m.vertical);
+    setVertical(m.vertical, { coreId: m.coreId ?? null });
     next();
   };
 
@@ -196,7 +196,8 @@ export function Setup() {
         vertical?: Vertical;
         warnings?: string[];
         error?: string;
-        source?: "model" | "mock";
+        source?: "model" | "mock" | "cached";
+        coreId?: string | null;
       } = await res.json();
 
       if (!res.ok || !data.vertical) {
@@ -212,10 +213,11 @@ export function Setup() {
         role: data.vertical.role,
         productName: productName.trim(),
         source: data.source ?? "mock",
+        coreId: data.coreId ?? null,
         createdAt: new Date().toISOString(),
         vertical: data.vertical,
       });
-      setVertical(data.vertical);
+      setVertical(data.vertical, { coreId: data.coreId ?? null });
       next();
     } catch (error) {
       setGen({
@@ -347,6 +349,7 @@ export function Setup() {
                           for {m.productName} ·{" "}
                           {new Date(m.createdAt).toLocaleDateString()}
                           {m.source === "mock" && " · demo"}
+                          {m.source === "cached" && " · reused core"}
                         </span>
                       </button>
                       <button

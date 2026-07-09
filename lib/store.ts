@@ -26,6 +26,11 @@ interface FlowState {
    * replaced at runtime when a module is generated or reopened.
    */
   vertical: Vertical;
+  /**
+   * Cache core the active vertical was assembled from (null for the
+   * built-in and mock verticals). Attributes feedback to the shared core.
+   */
+  coreId: string | null;
   choices: {
     frequencyCap: number;
     priority: string;
@@ -38,7 +43,7 @@ interface FlowState {
   next: () => void;
   setProfile: (questionId: string, values: string[]) => void;
   /** Swap the active vertical (e.g. for a generated module) and reset choices. */
-  setVertical: (vertical: Vertical) => void;
+  setVertical: (vertical: Vertical, meta?: { coreId?: string | null }) => void;
   setChoices: (choices: Partial<FlowState["choices"]>) => void;
   /** Store the launch decision and advance to the outcome. */
   launchSimulation: (choices: FlowState["choices"]) => void;
@@ -59,6 +64,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   runCount: 0,
   profile: defaultProfile(activeVertical.config),
   vertical: activeVertical,
+  coreId: null,
   choices: choicesFor(activeVertical),
 
   hydrate: async () => {
@@ -78,6 +84,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           user,
           profile: { ...defaultProfile(activeVertical.config), ...session.profile },
           vertical,
+          coreId:
+            modules.find((m) => m.id === session.verticalId)?.coreId ?? null,
           currentStep: Math.min(
             Math.max(session.step, 0),
             SCENE_ORDER.length - 1
@@ -122,6 +130,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       runCount: 0,
       profile: defaultProfile(activeVertical.config),
       vertical: activeVertical,
+      coreId: null,
       choices: choicesFor(activeVertical),
     });
   },
@@ -137,9 +146,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   setProfile: (questionId, values) =>
     set((s) => ({ profile: { ...s.profile, [questionId]: values } })),
 
-  setVertical: (vertical) => {
+  setVertical: (vertical, meta) => {
     registerVertical(vertical);
-    set({ vertical, choices: choicesFor(vertical), runCount: 0 });
+    set({
+      vertical,
+      coreId: meta?.coreId ?? null,
+      choices: choicesFor(vertical),
+      runCount: 0,
+    });
   },
 
   setChoices: (choices) =>
