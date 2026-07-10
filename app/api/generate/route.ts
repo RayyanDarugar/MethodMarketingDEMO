@@ -5,14 +5,10 @@ import { mockGenerate } from "@/lib/generation/mock";
 import {
   buildPayoffSystemPrompt,
   buildPayoffUserPrompt,
-  buildSystemPrompt,
-  buildUserPrompt,
 } from "@/lib/generation/prompt";
 import {
   GeneratedPayoffSchema,
-  GeneratedVerticalSchema,
   GenerationRequestSchema,
-  toVertical,
   validateVertical,
   type GenerationRequest,
 } from "@/lib/generation/schema";
@@ -22,25 +18,24 @@ import {
   listCandidatePairs,
   lookupCoreExact,
   matchPair,
-  saveCore,
   type CachedCore,
 } from "@/lib/generation/cache";
+import { runSection } from "@/lib/generation/run-section";
 
 /**
- * POST /api/generate — generate a learning module for a target industry/role,
- * personalized to the requester's product and calibration profile.
+ * POST /api/generate — entry point for module generation.
  *
- * Without an ANTHROPIC_API_KEY (or with METHOD_GENERATION_MOCK=1) the route
- * serves a mock module so the flow stays demoable; with a key it runs a real
- * structured-output generation with one validation-guided retry.
+ * Fast paths handled inline (they fit serverless time limits):
+ * - mock (no ANTHROPIC_API_KEY or METHOD_GENERATION_MOCK=1)
+ * - cache hit: reuse the industry/role core, regenerate only the payoff
+ *   for the requester's product (~85s)
+ *
+ * Cache miss returns `{ seed: true }` WITHOUT generating: a full seed takes
+ * 6–12 minutes, which exceeds serverless caps, so the client orchestrates it
+ * as three short calls (/api/generate/section ×2, then /api/generate/finish).
  */
 
-// Generation is a single long model call; allow it to run (Vercel Pro caps
-// apply — hobby plans clamp this lower).
 export const maxDuration = 300;
-
-const MODEL = process.env.GENERATION_MODEL ?? "claude-opus-4-8";
-const MAX_ATTEMPTS = 2;
 
 interface GenerationSuccess {
   vertical: Vertical;
@@ -49,207 +44,30 @@ interface GenerationSuccess {
   coreId?: string | null;
 }
 
-/** Unwrap a ```json fenced block so a fenced reply doesn't burn a retry. */
-function stripFences(text: string): string {
-  const trimmed = text.trim();
-  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  return match ? match[1] : trimmed;
-}
-
-async function generateWithModel(
-  request: GenerationRequest,
-  signal: AbortSignal
-): Promise<GenerationSuccess> {
-  // maxRetries: 0 — the SDK default (2) silently re-sends the whole request
-  // on connection errors/timeouts; each invisible retry is a full billed
-  // generation. Fail loudly instead.
-  const client = new Anthropic({ maxRetries: 0 });
-  const systemPrompt = buildSystemPrompt();
-  let previousErrors: string[] = [];
-
-  // GeneratedVerticalSchema exceeds the structured-outputs grammar-size limit
-  // (the API rejects it with a 400), so the output shape is enforced by the
-  // gold exemplar in the system prompt plus zod validation with retry.
-
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    console.log(`[generate] attempt ${attempt}/${MAX_ATTEMPTS} starting`);
-    const stream = client.messages.stream(
-      {
-        model: MODEL,
-        max_tokens: 64000,
-        thinking: { type: "adaptive" },
-        // The system prompt embeds the large gold exemplar; cache it so the
-        // validation retry (and subsequent generations) reuse the prefix.
-        system: [
-          {
-            type: "text",
-            text: systemPrompt,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        messages: [
-          {
-            role: "user",
-            content: buildUserPrompt(request, { previousErrors }),
-          },
-        ],
-      },
-      // Abort the generation if the browser disconnects (refresh, re-click,
-      // closed tab) — otherwise orphaned runs keep billing invisibly.
-      { signal }
-    );
-
-    const message = await stream.finalMessage();
-    console.log(
-      `[generate] attempt ${attempt} done: stop_reason=${message.stop_reason}, usage=${JSON.stringify(message.usage)}`
-    );
-
-    if (message.stop_reason === "refusal") {
-      throw new Error("The model declined to generate this module.");
-    }
-    if (message.stop_reason === "max_tokens") {
-      throw new Error("Generation ran out of output tokens; try again.");
-    }
-
-    const text = message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-
-    let candidate: unknown;
-    try {
-      candidate = JSON.parse(stripFences(text));
-    } catch {
-      previousErrors = ["Output was not valid JSON. Emit only the JSON object."];
-      console.warn(`[generate] attempt ${attempt} output was not valid JSON`);
-      continue;
-    }
-
-    const parsed = GeneratedVerticalSchema.safeParse(candidate);
-    if (!parsed.success) {
-      previousErrors = parsed.error.issues
-        .slice(0, 20)
-        .map((issue) => `${issue.path.join(".")}: ${issue.message}`);
-      console.warn(
-        `[generate] attempt ${attempt} failed schema validation:\n  ${previousErrors.join("\n  ")}`
-      );
-      continue;
-    }
-
-    const vertical = toVertical(parsed.data, activeVertical.config);
-    const { errors, warnings } = validateVertical(vertical);
-    if (errors.length > 0) {
-      previousErrors = errors;
-      console.warn(
-        `[generate] attempt ${attempt} failed semantic validation:\n  ${errors.join("\n  ")}`
-      );
-      continue;
-    }
-
-    return { vertical, warnings, source: "model" };
-  }
-
-  throw new Error(
-    `Generation failed validation after ${MAX_ATTEMPTS} attempts: ${previousErrors.join("; ")}`
-  );
-}
-
-/**
- * Cache-hit path: the industry/role core already exists; generate only the
- * product-personalized payoff (~10x cheaper than a full run) and assemble.
- */
-async function generatePayoffWithModel(
+/** Cache-hit path: cached core + fresh payoff for this product. */
+async function generateFromCache(
   request: GenerationRequest,
   cached: CachedCore,
   signal: AbortSignal
-): Promise<GenerationSuccess & { coreId: string }> {
-  const client = new Anthropic({ maxRetries: 0 });
-  const systemPrompt = buildPayoffSystemPrompt();
-  let previousErrors: string[] = [];
-
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    console.log(
-      `[generate] payoff attempt ${attempt}/${MAX_ATTEMPTS} (core ${cached.id})`
-    );
-    const stream = client.messages.stream(
-      {
-        model: MODEL,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
-        system: [
-          {
-            type: "text",
-            text: systemPrompt,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        messages: [
-          {
-            role: "user",
-            content: buildPayoffUserPrompt({
-              request,
-              core: cached.core,
-              previousErrors,
-            }),
-          },
-        ],
-      },
-      { signal }
-    );
-
-    const message = await stream.finalMessage();
-    console.log(
-      `[generate] payoff attempt ${attempt} done: stop_reason=${message.stop_reason}, usage=${JSON.stringify(message.usage)}`
-    );
-    if (message.stop_reason === "refusal") {
-      throw new Error("The model declined to generate this payoff.");
-    }
-    if (message.stop_reason === "max_tokens") {
-      throw new Error("Payoff generation ran out of output tokens; try again.");
-    }
-
-    const text = message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-
-    let candidate: unknown;
-    try {
-      candidate = JSON.parse(stripFences(text));
-    } catch {
-      previousErrors = ["Output was not valid JSON. Emit only the JSON object."];
-      console.warn(`[generate] payoff attempt ${attempt} output was not valid JSON`);
-      continue;
-    }
-
-    const parsed = GeneratedPayoffSchema.safeParse(candidate);
-    if (!parsed.success) {
-      previousErrors = parsed.error.issues
-        .slice(0, 20)
-        .map((issue) => `${issue.path.join(".")}: ${issue.message}`);
-      console.warn(
-        `[generate] payoff attempt ${attempt} failed schema validation:\n  ${previousErrors.join("\n  ")}`
-      );
-      continue;
-    }
-
-    const vertical = assembleVertical(cached.core, parsed.data);
-    const { errors, warnings } = validateVertical(vertical);
-    if (errors.length > 0) {
-      previousErrors = errors;
-      console.warn(
-        `[generate] payoff attempt ${attempt} failed semantic validation:\n  ${errors.join("\n  ")}`
-      );
-      continue;
-    }
-
-    void bumpUseCount(cached.id);
-    return { vertical, warnings, source: "cached", coreId: cached.id };
-  }
-
-  throw new Error(
-    `Payoff generation failed validation after ${MAX_ATTEMPTS} attempts: ${previousErrors.join("; ")}`
+): Promise<GenerationSuccess> {
+  const payoff = await runSection(
+    {
+      label: "payoff",
+      systemPrompt: buildPayoffSystemPrompt(),
+      userPrompt: (previousErrors) =>
+        buildPayoffUserPrompt({ request, core: cached.core, previousErrors }),
+      schema: GeneratedPayoffSchema,
+      // The core was validated when saved, so any assembled error is the
+      // payoff's fault and retries the payoff alone.
+      semantic: (p) => validateVertical(assembleVertical(cached.core, p)).errors,
+    },
+    signal
   );
+
+  const vertical = assembleVertical(cached.core, payoff);
+  const { warnings } = validateVertical(vertical);
+  void bumpUseCount(cached.id);
+  return { vertical, warnings, source: "cached", coreId: cached.id };
 }
 
 export async function POST(req: Request) {
@@ -273,27 +91,30 @@ export async function POST(req: Request) {
     process.env.METHOD_GENERATION_MOCK === "1";
 
   try {
-    let result: GenerationSuccess;
     if (useMock) {
-      result = { ...(await mockGenerate(parsed.data)), source: "mock", coreId: null };
-    } else {
-      const { targetIndustry, targetRole } = parsed.data;
-      let cached = await lookupCoreExact(targetIndustry, targetRole);
-      if (!cached) {
-        const candidates = await listCandidatePairs();
-        const match = await matchPair(targetIndustry, targetRole, candidates);
-        if (match) cached = await lookupCoreExact(match.industry, match.role);
-      }
-      if (cached) {
-        console.log(`[generate] cache hit (core ${cached.id}) — payoff-only run`);
-        result = await generatePayoffWithModel(parsed.data, cached, req.signal);
-      } else {
-        console.log("[generate] cache miss — full generation");
-        result = await generateWithModel(parsed.data, req.signal);
-        result.coreId = await saveCore(result.vertical, targetIndustry, targetRole);
-      }
+      const result: GenerationSuccess = {
+        ...(await mockGenerate(parsed.data)),
+        source: "mock",
+        coreId: null,
+      };
+      return NextResponse.json(result);
     }
-    return NextResponse.json(result);
+
+    const { targetIndustry, targetRole } = parsed.data;
+    let cached = await lookupCoreExact(targetIndustry, targetRole);
+    if (!cached) {
+      const candidates = await listCandidatePairs();
+      const match = await matchPair(targetIndustry, targetRole, candidates);
+      if (match) cached = await lookupCoreExact(match.industry, match.role);
+    }
+    if (cached) {
+      console.log(`[generate] cache hit (core ${cached.id}) — payoff-only run`);
+      const result = await generateFromCache(parsed.data, cached, req.signal);
+      return NextResponse.json(result);
+    }
+
+    console.log("[generate] cache miss — client will run the section flow");
+    return NextResponse.json({ seed: true });
   } catch (error) {
     if (error instanceof Anthropic.APIUserAbortError) {
       // Client disconnected; the model call was cancelled. Nobody is
