@@ -369,6 +369,30 @@ export const GeneratedVerticalSchema = z.object({
 export type GeneratedVertical = z.infer<typeof GeneratedVerticalSchema>;
 
 // ---------------------------------------------------------------------------
+// Section schemas — chunked generation. Sections tile GeneratedVerticalSchema
+// exactly (foundation + simulation + payoff); each is generated in its own
+// short API call so a full seed never exceeds serverless time limits.
+// ---------------------------------------------------------------------------
+
+export const GeneratedFoundationSchema = GeneratedVerticalSchema.pick({
+  industry: true,
+  role: true,
+  intro: true,
+  lesson: true,
+  briefing: true,
+});
+
+export const GeneratedSimulationSchema = GeneratedVerticalSchema.pick({
+  simulation: true,
+  decision: true,
+  outcomes: true,
+  assistant: true,
+});
+
+export type GeneratedFoundation = z.infer<typeof GeneratedFoundationSchema>;
+export type GeneratedSimulation = z.infer<typeof GeneratedSimulationSchema>;
+
+// ---------------------------------------------------------------------------
 // Wire → app conversion
 // ---------------------------------------------------------------------------
 
