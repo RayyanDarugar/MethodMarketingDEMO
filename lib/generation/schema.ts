@@ -392,6 +392,79 @@ export const GeneratedSimulationSchema = GeneratedVerticalSchema.pick({
 export type GeneratedFoundation = z.infer<typeof GeneratedFoundationSchema>;
 export type GeneratedSimulation = z.infer<typeof GeneratedSimulationSchema>;
 
+/**
+ * Section-local semantic rules, run at section-generation time so a bad
+ * section retries alone instead of surfacing at final assembly. These mirror
+ * the corresponding checks in validateVertical (which remains the assembled
+ * safety net); the wire shapes differ (byCap array vs record), hence
+ * separate functions.
+ */
+export function validateFoundationWire(f: GeneratedFoundation): string[] {
+  const errors: string[] = [];
+
+  if (!f.lesson.cards.some((c) => c.kind === "terms")) {
+    errors.push("lesson.cards must include a 'terms' card.");
+  }
+
+  for (const q of f.briefing.quiz) {
+    const correct = q.options.filter((o) => o.correct).length;
+    if (correct !== 1) {
+      errors.push(
+        `quiz question "${q.id}" must have exactly one correct option (has ${correct}).`
+      );
+    }
+  }
+
+  return errors;
+}
+
+export function validateSimulationWire(s: GeneratedSimulation): string[] {
+  const errors: string[] = [];
+  const cap = s.simulation.frequencyCap;
+
+  if (!(cap.min < cap.max)) {
+    errors.push(`frequencyCap.min (${cap.min}) must be < max (${cap.max}).`);
+  }
+  if (cap.default < cap.min || cap.default > cap.max) {
+    errors.push(`frequencyCap.default must be within [min, max].`);
+  }
+
+  const caps = new Set(s.simulation.forecast.byCap.map((row) => row.cap));
+  for (let value = cap.min; value <= cap.max; value++) {
+    if (!caps.has(value)) {
+      errors.push(`forecast.byCap is missing an entry for cap=${value}.`);
+    }
+  }
+
+  const bandMaxes = s.decision.bands.map((b) => b.max);
+  if ([...bandMaxes].sort((a, b) => a - b).join() !== bandMaxes.join()) {
+    errors.push("decision.bands must be sorted by ascending max.");
+  }
+  if (bandMaxes.some((m) => m < cap.min || m >= cap.max)) {
+    errors.push(
+      "every decision band max must lie within [cap.min, cap.max) so the 'high' fallback is reachable."
+    );
+  }
+  if (!s.decision.bands.some((b) => b.outcome === "balanced")) {
+    errors.push("decision.bands must include a 'balanced' band (the win state).");
+  }
+
+  const priorityValues = new Set(s.simulation.priority.options.map((o) => o.value));
+  if (!priorityValues.has(s.simulation.priority.default)) {
+    errors.push("priority.default must be one of priority.options[].value.");
+  }
+  const notedPriorities = new Set(s.decision.priorityNotes.map((n) => n.priority));
+  for (const value of priorityValues) {
+    if (!notedPriorities.has(value)) {
+      errors.push(
+        `decision.priorityNotes is missing an entry for priority "${value}".`
+      );
+    }
+  }
+
+  return errors;
+}
+
 // ---------------------------------------------------------------------------
 // Wire → app conversion
 // ---------------------------------------------------------------------------
