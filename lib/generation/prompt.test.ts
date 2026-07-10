@@ -2,9 +2,18 @@ import { describe, expect, it } from "vitest";
 import { activeVertical } from "@/lib/content";
 import { stripPayoff } from "@/lib/generation/core";
 import {
+  GeneratedFoundationSchema,
+  GeneratedSimulationSchema,
+} from "@/lib/generation/schema";
+import {
+  buildFoundationSystemPrompt,
+  buildFoundationUserPrompt,
   buildPayoffSystemPrompt,
   buildPayoffUserPrompt,
+  buildSimulationSystemPrompt,
+  buildSimulationUserPrompt,
   buildSystemPrompt,
+  toWireFormat,
 } from "@/lib/generation/prompt";
 
 const request = {
@@ -40,5 +49,57 @@ describe("payoff prompts", () => {
       previousErrors: ["toolkit.artifacts: too few items"],
     });
     expect(prompt).toContain("too few items");
+  });
+});
+
+describe("section prompts", () => {
+  const wire = toWireFormat(activeVertical);
+  const foundation = GeneratedFoundationSchema.parse(wire);
+  const simulation = GeneratedSimulationSchema.parse(wire);
+
+  it("foundation system embeds only the foundation exemplar", () => {
+    const prompt = buildFoundationSystemPrompt();
+    expect(prompt).toContain(wire.lesson.title);
+    expect(prompt).not.toContain("emailSequence"); // payoff artifact kinds excluded
+    expect(prompt).not.toContain('"byCap"'); // simulation numbers excluded
+  });
+
+  it("foundation user prompt carries industry/role but NOT the product (cores stay product-agnostic)", () => {
+    const prompt = buildFoundationUserPrompt({ request });
+    expect(prompt).toContain("Fintech");
+    expect(prompt).toContain("Account Executives");
+    expect(prompt).not.toContain("Agent Dynamo");
+  });
+
+  it("simulation system embeds the numeric mechanics and simulation exemplar", () => {
+    const prompt = buildSimulationSystemPrompt();
+    expect(prompt).toContain('"byCap"');
+    expect(prompt).toContain("lineItemName"); // wire-keys rule
+    expect(prompt).toContain(wire.simulation.productName);
+  });
+
+  it("simulation user prompt embeds the foundation as context and threads errors", () => {
+    const prompt = buildSimulationUserPrompt({
+      request,
+      foundation,
+      previousErrors: ["forecast.byCap is missing an entry for cap=3."],
+    });
+    expect(prompt).toContain(foundation.lesson.title);
+    expect(prompt).toContain("cap=3");
+    expect(prompt).not.toContain("Agent Dynamo");
+  });
+
+  it("payoff user prompt accepts a wire-built context", () => {
+    const prompt = buildPayoffUserPrompt({
+      request,
+      core: {
+        industry: foundation.industry,
+        role: foundation.role,
+        lesson: foundation.lesson,
+        simulation: { productName: simulation.simulation.productName },
+      },
+    });
+    expect(prompt).toContain("Agent Dynamo");
+    expect(prompt).toContain(simulation.simulation.productName);
   });
 });

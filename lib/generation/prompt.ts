@@ -3,8 +3,11 @@ import {
   profileLabels,
   type Vertical,
 } from "@/lib/content";
-import type { GeneratedVertical, GenerationRequest } from "./schema";
-import type { VerticalCore } from "./core";
+import type {
+  GeneratedFoundation,
+  GeneratedVertical,
+  GenerationRequest,
+} from "./schema";
 
 /**
  * Prompt assembly for on-demand module generation.
@@ -67,10 +70,19 @@ function outcomeToWire(vertical: Vertical, key: "low" | "balanced" | "high") {
   return { status, verdict, summary, coaching, risk: risk ?? null };
 }
 
+const FRAMING = `You are the content engine for Method Marketing, a platform that teaches marketers an unfamiliar industry role through a Learn → Simulate → Produce arc: an interactive lesson, a hands-on simulation of the role's core decision inside a fictional software tool, and a toolkit of marketing artifacts the learner leaves with.`;
+
+const CRAFT_RULE = `- Write with craft: specific numbers, verbatim-sounding quotes, consequences a practitioner would recognize. No filler, no "delve", no exclamation marks.`;
+
+const EXPERT_NOTES_RULE = `- If expert notes are provided in the request, treat them as validated ground truth: every domain claim in the module should be traceable to them or to widely uncontroversial industry knowledge. Do not contradict them.`;
+
+const returnOnly = (what: string) =>
+  `Return ONLY the ${what} JSON object, matching the exemplar's wire format exactly — no markdown fences, no commentary before or after. The wire format's keys are fixed in EVERY industry — re-theme the VALUES, never rename, drop, or add keys.`;
+
 export function buildSystemPrompt(): string {
   const exemplar = JSON.stringify(toWireFormat(activeVertical), null, 1);
 
-  return `You are the content engine for Method Marketing, a platform that teaches marketers an unfamiliar industry role through a Learn → Simulate → Produce arc: an interactive lesson, a hands-on simulation of the role's core decision inside a fictional software tool, and a toolkit of marketing artifacts the learner leaves with.
+  return `${FRAMING}
 
 You generate one complete learning module (a "vertical") as JSON, targeting a specific industry role, personalized to the requesting user's product and goals.
 
@@ -105,11 +117,168 @@ ${exemplar}
 Return ONLY the JSON object, matching the exemplar's wire format exactly — no markdown fences, no commentary before or after.`;
 }
 
+// ---------------------------------------------------------------------------
+// Section prompts — chunked generation. Each section is one short model call
+// (foundation → simulation → payoff); later sections receive earlier ones as
+// context, so coherence survives the split. Foundation and simulation prompts
+// deliberately exclude the requester's product: cached cores must stay
+// product-agnostic by construction.
+// ---------------------------------------------------------------------------
+
+export function buildFoundationSystemPrompt(): string {
+  const wire = toWireFormat(activeVertical);
+  const exemplar = JSON.stringify(
+    {
+      industry: wire.industry,
+      role: wire.role,
+      intro: wire.intro,
+      lesson: wire.lesson,
+      briefing: wire.briefing,
+    },
+    null,
+    1
+  );
+
+  return `${FRAMING}
+
+You generate the FOUNDATION of one module as JSON: industry, role, intro, lesson, and briefing. Later, separate calls will generate the simulation and the payoff on top of your foundation — so the lesson's vocabulary and the briefing's assignment must stand on their own.
+
+## Content rules
+
+- The lesson has 3–5 cards and MUST include one "terms" card (4–6 terms). Card kinds: "flow" (the industry's value chain, clickable stages), "terms", "pressures" (what the role is measured on), "timeline" (a day in the seat). Every card carries 2–4 followUps (scripted Q&A) and a graceful fallbackAnswer.
+- The briefing turns the lesson into an assignment: the mission, the two decisions the learner will make, 2–4 success criteria, and a 1–3 question knowledge check where exactly ONE option per question is correct.
+- The briefing's two decisions must map onto ONE consequential numeric decision (a slider) and one secondary priority-style choice — the simulation call will implement exactly those two.
+${CRAFT_RULE}
+${EXPERT_NOTES_RULE}
+
+## Foundation exemplar
+
+The following foundation (ad-tech/media, campaign manager) is expert-authored and shows the exact wire format, depth, and voice expected. Match its quality; do not copy its content into other industries.
+
+${exemplar}
+
+${returnOnly("foundation")}`;
+}
+
+export function buildFoundationUserPrompt(args: {
+  request: GenerationRequest;
+  expertNotes?: string;
+  previousErrors?: string[];
+}): string {
+  const { request, expertNotes, previousErrors } = args;
+  const calibration = profileLabels(activeVertical.config, request.profile);
+
+  const parts = [
+    `Generate the foundation for a Method Marketing module with these parameters:`,
+    ``,
+    `Target industry: ${request.targetIndustry}`,
+    `Target role: ${request.targetRole}`,
+    `Learner calibration: ${calibration.join(" · ") || "none provided"}`,
+  ];
+
+  if (expertNotes) {
+    parts.push(
+      ``,
+      `Expert-validated notes on this role (ground truth — compose from these):`,
+      expertNotes
+    );
+  }
+
+  if (previousErrors?.length) {
+    parts.push(
+      ``,
+      `Your previous attempt failed validation. Fix ALL of these and regenerate the full foundation object:`,
+      ...previousErrors.map((e) => `- ${e}`)
+    );
+  }
+
+  return parts.join("\n");
+}
+
+export function buildSimulationSystemPrompt(): string {
+  const wire = toWireFormat(activeVertical);
+  const exemplar = JSON.stringify(
+    {
+      simulation: wire.simulation,
+      decision: wire.decision,
+      outcomes: wire.outcomes,
+      assistant: wire.assistant,
+    },
+    null,
+    1
+  );
+
+  return `${FRAMING}
+
+You generate the SIMULATION sections of one module as JSON: simulation, decision, outcomes, and assistant. The module's foundation (lesson and briefing) already exists and is provided in the request — your simulation must use its vocabulary and deliver exactly the assignment its briefing promises.
+
+## The simulation archetype
+
+The simulation is a parameterized "operational dashboard" archetype: the learner configures a work item inside a fictional category-archetype tool (never a real vendor's product name), with locked contract fields, ONE consequential numeric decision rendered as a slider (the "frequencyCap" group — reuse its structure even if the domain decision is named differently, e.g. "reorder threshold" or "review SLA"), a secondary 3-option priority-style control, and a live forecast that reacts to the slider.
+
+Non-negotiable mechanics:
+- simulation.campaign always uses exactly the keys lineItemName, advertiser, budget, currency, impressionsGoal, cpm, and flight, even when the domain has no ads (map the role's work item onto them, e.g. a loan book onto budget/impressionsGoal-style quantities).
+- forecast.byCap must contain exactly one entry per integer from frequencyCap.min to frequencyCap.max inclusive. Numbers must tell a coherent story: at low values one forecast metric is great and the other suffers; in a middle band both are healthy; at high values the trade-off reverses. reachPct and deliveryPct are 0–100.
+- decision.bands map slider values to outcomes: the first band whose max >= the chosen value wins; values above every band max fall through to the "high" outcome. Include a "low" band and a "balanced" band; every band max must be >= frequencyCap.min and < frequencyCap.max. Band boundaries must agree with the forecast numbers (the "balanced" range is where deliveryPct is at/near its best while reachPct is still strong).
+- outcomes.low / .balanced / .high: "balanced" is the win state (status "win", risk null); the other two are status "risk" with a risk callout. Verdicts are punchy; coaching explains the why in plain language.
+- outcome metric labels come from the forecast, so thresholds.reachGoodAt and thresholds.frequencyWasteAt must be consistent with the byCap numbers.
+- priority.options: 2–4 options; priority.default must be one of their values; decision.priorityNotes must contain one entry per option value (tone "good" for the sensible default, "warn" for the others).
+- The fictional simulation tool name must be plausible for the industry but not a real product.
+${CRAFT_RULE}
+
+## Simulation exemplar
+
+The following simulation sections (ad-tech/media, campaign manager) are expert-authored and show the exact wire format, depth, and voice expected. Match their quality; do not copy their content into other industries.
+
+${exemplar}
+
+${returnOnly("simulation-sections")}`;
+}
+
+export function buildSimulationUserPrompt(args: {
+  request: GenerationRequest;
+  foundation: GeneratedFoundation;
+  previousErrors?: string[];
+}): string {
+  const { request, foundation, previousErrors } = args;
+
+  const parts = [
+    `Generate the simulation sections for this module:`,
+    ``,
+    `Target industry: ${request.targetIndustry}`,
+    `Target role: ${request.targetRole}`,
+    ``,
+    `The module's foundation — use its vocabulary; the briefing's two decisions and success criteria are the contract your simulation must fulfill:`,
+    JSON.stringify(foundation, null, 1),
+  ];
+
+  if (previousErrors?.length) {
+    parts.push(
+      ``,
+      `Your previous attempt failed validation. Fix ALL of these and regenerate the full simulation-sections object:`,
+      ...previousErrors.map((e) => `- ${e}`)
+    );
+  }
+
+  return parts.join("\n");
+}
+
+/**
+ * What the payoff prompt needs from the rest of the module — satisfied both
+ * by a cached VerticalCore and by freshly generated wire sections.
+ */
+export interface PayoffContext {
+  industry: string;
+  role: string;
+  lesson: GeneratedFoundation["lesson"];
+  simulation: { productName: string };
+}
+
 /**
  * Payoff-only regeneration: the module core (lesson, simulation, outcomes…)
- * came from the cache; only the product-personalized payoff is generated.
- * Embeds just the payoff exemplar, so input stays ~10x smaller than the
- * full-module system prompt.
+ * came from the cache or from the section flow; only the product-personalized
+ * payoff is generated. Embeds just the payoff exemplar, so input stays ~10x
+ * smaller than the full-module system prompt.
  */
 export function buildPayoffSystemPrompt(): string {
   const exemplar = JSON.stringify(toWireFormat(activeVertical).payoff, null, 1);
@@ -133,7 +302,7 @@ Return ONLY the payoff JSON object, matching the exemplar's wire format exactly 
 
 export function buildPayoffUserPrompt(args: {
   request: GenerationRequest;
-  core: VerticalCore;
+  core: PayoffContext;
   previousErrors?: string[];
 }): string {
   const { request, core, previousErrors } = args;
