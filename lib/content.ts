@@ -5,6 +5,11 @@
  * response without touching the component layer.
  */
 
+import type {
+  DecisionBand as ScenarioBand,
+  ScenarioSimulation,
+} from "@/lib/scenario/types";
+
 // ---------------------------------------------------------------------------
 // Flow
 // ---------------------------------------------------------------------------
@@ -1270,3 +1275,229 @@ const adTechMedia: Vertical = {
 export const VERTICALS: Vertical[] = [adTechMedia];
 
 export const activeVertical: Vertical = VERTICALS[0];
+
+// ---------------------------------------------------------------------------
+// Tier B exemplar scenario (ops dashboard archetype) — re-authored from the
+// expert ad-tech module above. Standalone until the scenario-engine flip
+// wires it into Vertical.simulation; it is the generation gold exemplar.
+// The decisive meter is the tension axis: too little frequency pressure =
+// under-delivery ("low"), too much = fatigue ("high").
+// ---------------------------------------------------------------------------
+
+export const adTechScenarioBands: ScenarioBand[] = [
+  { max: 29, outcome: "low" },
+  { max: 69, outcome: "balanced" },
+];
+
+export const adTechScenario: ScenarioSimulation = {
+  archetype: "opsDashboard",
+  productName: "AdServe Pro",
+  environmentLabel: "Simulation · Atlas Cloud media plan",
+  header: [
+    { label: "Advertiser", value: "Atlas Cloud Software" },
+    { label: "Budget", value: "$45,000", sublabel: "@ $12.50 CPM" },
+    { label: "Impressions goal", value: "3,600,000" },
+    { label: "Flight", value: "Jul 1 – Sep 30, 2026" },
+  ],
+  meters: [
+    {
+      id: "pressure",
+      label: "Frequency pressure",
+      unit: "pts",
+      start: 30,
+      min: 0,
+      max: 100,
+      goodDirection: "down",
+      decisive: true,
+    },
+    {
+      id: "delivery",
+      label: "Budget delivery",
+      unit: "%",
+      start: 55,
+      min: 0,
+      max: 100,
+      goodDirection: "up",
+    },
+    {
+      id: "trust",
+      label: "Advertiser trust",
+      unit: "pts",
+      start: 70,
+      min: 0,
+      max: 100,
+      goodDirection: "up",
+    },
+  ],
+  beats: [
+    {
+      kind: "message",
+      id: "io-closed",
+      channel: "email",
+      from: { name: "Priya Shah", role: "Enterprise AE" },
+      subject: "Atlas Cloud IO signed — they want a splash",
+      body: "IO just closed: $45K, 3.6M impressions, Q3 flight. Heads up — their VP of Marketing is nervous about visibility and keeps saying she wants to 'see it everywhere day one.' How do you want me to set expectations before you configure?",
+      choices: [
+        {
+          label: "Set expectations now: steady pacing wins the quarter",
+          effects: [{ meter: "trust", delta: 6 }],
+          consequence: "Priya relays the pacing story. Dana replies: 'Fine — but I'm watching the weekly numbers.'",
+        },
+        {
+          label: "Promise the day-one splash — keep the client excited",
+          effects: [
+            { meter: "pressure", delta: 10 },
+            { meter: "trust", delta: 2 },
+          ],
+          consequence: "Dana's thrilled. You've also just committed the campaign to front-loaded serving it may regret.",
+        },
+        {
+          label: "Ask ad-ops for the pacing model before anyone replies",
+          effects: [
+            { meter: "pressure", delta: -5 },
+            { meter: "trust", delta: 3 },
+          ],
+          consequence: "Slower answer, better answer. The model comes back with a warning about tight caps on this audience size.",
+        },
+      ],
+    },
+    {
+      kind: "message",
+      id: "pacing-warning",
+      channel: "chat",
+      from: { name: "Marco Reyes", role: "Ad Operations" },
+      body: "yo — ran Atlas Cloud through the pacing model. audience is ~1.5M uniques. at a tight cap this thing CANNOT spend $45K in 90 days. at a loose cap it spends easy but reach craters. just so you know before you touch the line item",
+      choices: [
+        {
+          label: "Pull the delivery forecast and read it before configuring",
+          effects: [{ meter: "delivery", delta: 5 }],
+          consequence: "The forecast panel is now your co-pilot. Every cap value shows its reach/delivery trade before you commit.",
+        },
+        {
+          label: "Defaults shipped with the ad server — trust them",
+          effects: [{ meter: "delivery", delta: -5 }],
+          consequence: "The default cap of 1 was set for a different campaign type. Marco's warning goes unread.",
+        },
+        {
+          label: "Skip the analysis — crank priority to Sponsorship now",
+          effects: [
+            { meter: "pressure", delta: 10 },
+            { meter: "trust", delta: -3 },
+          ],
+          consequence: "Sponsorship wins every eligible impression first — and starves the open auction. Programmatic revenue on these placements drops 18%.",
+        },
+      ],
+    },
+    {
+      kind: "numeric",
+      id: "frequency-cap",
+      prompt: "The line item is configured except for the decision that matters: the frequency cap. How many times can one person see this ad per day? The forecast updates as you move it — deliver the full budget AND keep reach healthy.",
+      control: {
+        label: "Frequency cap",
+        unit: "impressions / user / day",
+        min: 1,
+        max: 10,
+        default: 1,
+      },
+      byValue: [
+        { value: 1, effects: [{ meter: "pressure", delta: -18 }, { meter: "delivery", delta: 6 }], note: "Reach 92%, delivery 61% — everyone sees it once, the budget can't spend." },
+        { value: 2, effects: [{ meter: "pressure", delta: 8 }, { meter: "delivery", delta: 39 }], note: "Reach 88%, delivery 94% — both bars healthy." },
+        { value: 3, effects: [{ meter: "pressure", delta: 15 }, { meter: "delivery", delta: 45 }], note: "Reach 84%, delivery 100% — full spend, strong reach." },
+        { value: 4, effects: [{ meter: "pressure", delta: 25 }, { meter: "delivery", delta: 45 }], note: "Reach 77%, delivery 100% — the upper edge of healthy." },
+        { value: 5, effects: [{ meter: "pressure", delta: 45 }, { meter: "delivery", delta: 45 }, { meter: "trust", delta: -4 }], note: "Reach 65% — the same people are starting to see this a lot." },
+        { value: 6, effects: [{ meter: "pressure", delta: 52 }, { meter: "delivery", delta: 45 }, { meter: "trust", delta: -6 }], note: "Reach 56% — nearly half the audience never sees the ad." },
+        { value: 7, effects: [{ meter: "pressure", delta: 58 }, { meter: "delivery", delta: 45 }, { meter: "trust", delta: -8 }], note: "Reach 49% — frequency fatigue territory." },
+        { value: 8, effects: [{ meter: "pressure", delta: 62 }, { meter: "delivery", delta: 45 }, { meter: "trust", delta: -10 }], note: "Reach 44% — the budget is buying repeats, not people." },
+        { value: 9, effects: [{ meter: "pressure", delta: 65 }, { meter: "delivery", delta: 45 }, { meter: "trust", delta: -12 }], note: "Reach 40% — the wasted-frequency chart writes itself." },
+        { value: 10, effects: [{ meter: "pressure", delta: 67 }, { meter: "delivery", delta: 45 }, { meter: "trust", delta: -14 }], note: "Reach 38% — 7.9 impressions per person per day. Fatigue, not persuasion." },
+      ],
+    },
+    {
+      kind: "message",
+      id: "weekend-push",
+      channel: "email",
+      from: { name: "Dana Whitfield", role: "VP Marketing, Atlas Cloud" },
+      subject: "Weekend idea from our CEO",
+      body: "Our CEO saw a competitor 'everywhere' during the game this weekend and wants the same. Can we throw everything at this Saturday and Sunday? Whatever it takes.",
+      choices: [
+        {
+          label: "Hold the plan — walk her through the frequency math",
+          effects: [{ meter: "trust", delta: 4 }],
+          consequence: "You share the reach curve. 'Nobody's ever shown me this before,' Dana replies. The plan holds.",
+        },
+        {
+          label: "Grant it — burst the weekend, whatever it takes",
+          effects: [
+            { meter: "pressure", delta: 12 },
+            { meter: "trust", delta: 3 },
+          ],
+          consequence: "Saturday burns 9% of the quarterly budget on the same heavy visitors. The CEO is happy for exactly one weekend.",
+        },
+        {
+          label: "Offer a capped compromise: a visible bump, not a blowout",
+          effects: [
+            { meter: "pressure", delta: 5 },
+            { meter: "trust", delta: 5 },
+          ],
+          consequence: "A modest weekend bump inside the cap. Dana gets a screenshot for the CEO; the flight stays on plan.",
+        },
+      ],
+    },
+    {
+      kind: "message",
+      id: "priority-call",
+      channel: "chat",
+      from: { name: "Marco Reyes", role: "Ad Operations" },
+      body: "last config question from me: line item priority. Sponsorship wins every eligible impression first, Standard paces evenly against goal, House fills leftovers only. this is a signed $45K order — your call.",
+      choices: [
+        {
+          label: "Standard — pace evenly against the goal",
+          effects: [{ meter: "delivery", delta: 3 }],
+          consequence: "The line item paces evenly, and leftover impressions still flow to the open auction. The textbook setting for a signed contract.",
+        },
+        {
+          label: "Sponsorship — win every impression first",
+          effects: [
+            { meter: "pressure", delta: 8 },
+            { meter: "delivery", delta: 5 },
+            { meter: "trust", delta: -3 },
+          ],
+          consequence: "Delivery is safe — but the open auction on these placements starves, and the yield team notices the 18% programmatic dip.",
+        },
+        {
+          label: "House — fill leftovers only",
+          effects: [
+            { meter: "pressure", delta: -8 },
+            { meter: "delivery", delta: -15 },
+          ],
+          consequence: "Every paid campaign now beats this contracted line item to impressions. On a signed order, this setting alone risks under-delivery.",
+        },
+      ],
+    },
+    {
+      kind: "message",
+      id: "makegood-rumor",
+      channel: "call",
+      from: { name: "Priya Shah", role: "Enterprise AE" },
+      body: "Quick call before end of day — Atlas Cloud's procurement asked their agency friends what happens if a campaign under-delivers, and now Dana's asking me about 'makegood clauses.' She's not accusing, she's nervous. What do I tell her?",
+      choices: [
+        {
+          label: "Send the live pacing forecast proactively, with your notes",
+          effects: [{ meter: "trust", delta: 8 }],
+          consequence: "Transparency lands. Dana forwards your pacing note to her CEO with the subject line 'we're in good hands.'",
+        },
+        {
+          label: "Reassure verbally — no need to share internal dashboards",
+          effects: [{ meter: "trust", delta: -6 }],
+          consequence: "Dana accepts it, but the next status call has three more stakeholders on it.",
+        },
+        {
+          label: "Route it to legal to review the IO language",
+          effects: [{ meter: "trust", delta: -4 }],
+          consequence: "Technically prudent. Emotionally, you just made a nervous client more nervous.",
+        },
+      ],
+    },
+  ],
+  launchLabel: "Launch line item",
+};
