@@ -18,6 +18,10 @@ import {
   type ConfigQuestion,
   type Vertical,
 } from "@/lib/content";
+import type {
+  GeneratedFoundation,
+  GeneratedSimulation,
+} from "@/lib/generation/schema";
 import { storage, type SavedModule } from "@/lib/storage";
 import { useFlowStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -115,19 +119,49 @@ function TextField({
   );
 }
 
-const GENERATION_STAGES = [
-  "Studying the role…",
-  "Drafting the lesson…",
-  "Parameterizing the simulation…",
-  "Calibrating decision bands…",
-  "Writing your artifacts…",
-  "Validating the module…",
-];
-
 type GenState =
   | { status: "idle" }
-  | { status: "running"; stage: number }
+  | { status: "running"; label: string; startedAt: number }
   | { status: "error"; message: string };
+
+function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `· ${m}m ${s.toString().padStart(2, "0")}s` : `· ${s}s`;
+}
+
+/**
+ * Parse a response body defensively: platform error pages (function
+ * timeouts, gateway errors) are plain text, and res.json() on them produces
+ * the cryptic "Unexpected token 'A'…". Surface a human message instead.
+ */
+async function safeJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `The server stopped responding mid-generation (HTTP ${res.status}) — usually a platform timeout. Try again; if it repeats, generate this module once from a local dev server.`
+    );
+  }
+}
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await safeJson<T & { error?: string }>(res);
+  if (!res.ok) {
+    const err = new Error(data.error ?? `Request failed (HTTP ${res.status}).`);
+    (err as Error & { payload?: unknown; status?: number }).payload = data;
+    (err as Error & { payload?: unknown; status?: number }).status = res.status;
+    throw err;
+  }
+  return data;
+}
 
 export function Setup() {
   const next = useFlowStore((s) => s.next);
@@ -169,55 +203,100 @@ export function Setup() {
     targetRole.trim();
 
   const generate = async () => {
-    setGen({ status: "running", stage: 0 });
+    const startedAt = Date.now();
+    const stage = (label: string) =>
+      setGen({ status: "running", label, startedAt });
+    stage("Checking the module library…");
+    // Re-render each second so the elapsed counter ticks.
     stageTimer.current = setInterval(() => {
-      setGen((g) =>
-        g.status === "running"
-          ? { status: "running", stage: Math.min(g.stage + 1, GENERATION_STAGES.length - 1) }
-          : g
-      );
-    }, 2200);
+      setGen((g) => (g.status === "running" ? { ...g } : g));
+    }, 1000);
+
+    interface GenerateResult {
+      vertical?: Vertical;
+      warnings?: string[];
+      source?: "model" | "mock" | "cached";
+      coreId?: string | null;
+      seed?: boolean;
+    }
+
+    const request = {
+      product: {
+        name: productName.trim(),
+        description: productDescription.trim(),
+      },
+      targetIndustry: targetIndustry.trim(),
+      targetRole: targetRole.trim(),
+      profile,
+    };
 
     try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product: {
-            name: productName.trim(),
-            description: productDescription.trim(),
-          },
-          targetIndustry: targetIndustry.trim(),
-          targetRole: targetRole.trim(),
-          profile,
-        }),
-      });
-      const data: {
-        vertical?: Vertical;
-        warnings?: string[];
-        error?: string;
-        source?: "model" | "mock" | "cached";
-        coreId?: string | null;
-      } = await res.json();
+      let result = await postJson<GenerateResult>("/api/generate", request);
 
-      if (!res.ok || !data.vertical) {
-        throw new Error(data.error ?? "Generation failed.");
+      if (result.seed) {
+        // Cache miss: run the chunked seed flow — three short calls, each
+        // safe against serverless time limits.
+        stage("Drafting the lesson & briefing… (step 1 of 3)");
+        let { foundation } = await postJson<{
+          foundation: GeneratedFoundation;
+        }>("/api/generate/section", { section: 1, request });
+
+        stage("Parameterizing the simulation… (step 2 of 3)");
+        let { simulation } = await postJson<{
+          simulation: GeneratedSimulation;
+        }>("/api/generate/section", { section: 2, request, foundation });
+
+        stage("Writing your artifacts… (step 3 of 3)");
+        for (let attempt = 1; ; attempt++) {
+          try {
+            result = await postJson<GenerateResult>("/api/generate/finish", {
+              request,
+              foundation,
+              simulation,
+            });
+            break;
+          } catch (err) {
+            const { status, payload } = err as Error & {
+              status?: number;
+              payload?: { section?: 1 | 2 };
+            };
+            // Cross-section validation miss (rare): regenerate the
+            // offending section once, then finish again.
+            if (status !== 422 || !payload?.section || attempt > 1) throw err;
+            if (payload.section === 1) {
+              stage("Reworking the lesson & briefing…");
+              ({ foundation } = await postJson<{
+                foundation: GeneratedFoundation;
+              }>("/api/generate/section", { section: 1, request }));
+            } else {
+              stage("Reworking the simulation…");
+              ({ simulation } = await postJson<{
+                simulation: GeneratedSimulation;
+              }>("/api/generate/section", { section: 2, request, foundation }));
+            }
+            stage("Writing your artifacts… (step 3 of 3)");
+          }
+        }
       }
-      if (data.warnings?.length) {
-        console.info("[generation]", data.warnings.join("\n"));
+
+      if (!result.vertical) {
+        throw new Error("Generation failed.");
+      }
+      if (result.warnings?.length) {
+        console.info("[generation]", result.warnings.join("\n"));
       }
       // Save to the module library so it can be reopened without regenerating.
       void storage.saveModule({
-        id: data.vertical.id,
-        industry: data.vertical.industry,
-        role: data.vertical.role,
+        id: result.vertical.id,
+        industry: result.vertical.industry,
+        role: result.vertical.role,
         productName: productName.trim(),
-        source: data.source ?? "mock",
-        coreId: data.coreId ?? null,
+        source: result.source ?? "mock",
+        coreId: result.coreId ?? null,
         createdAt: new Date().toISOString(),
-        vertical: data.vertical,
+        vertical: result.vertical,
       });
-      setVertical(data.vertical, { coreId: data.coreId ?? null });
+      setVertical(result.vertical, { coreId: result.coreId ?? null });
       next();
     } catch (error) {
       setGen({
@@ -422,7 +501,7 @@ export function Setup() {
               <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
               <AnimatePresence mode="wait">
                 <motion.span
-                  key={gen.status === "running" ? gen.stage : "done"}
+                  key={gen.status === "running" ? gen.label : "done"}
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
@@ -431,7 +510,7 @@ export function Setup() {
                   role="status"
                 >
                   {gen.status === "running"
-                    ? GENERATION_STAGES[gen.stage]
+                    ? `${gen.label} ${formatElapsed(Date.now() - gen.startedAt)}`
                     : "Almost there…"}
                 </motion.span>
               </AnimatePresence>
