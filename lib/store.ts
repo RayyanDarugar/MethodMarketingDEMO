@@ -8,6 +8,7 @@ import {
   defaultProfile,
 } from "@/lib/content";
 import { storage, type SignInArgs, type UserProfile } from "@/lib/storage";
+import type { BeatSelection } from "@/lib/scenario/types";
 import { getVertical, registerVertical } from "@/lib/verticals";
 
 interface FlowState {
@@ -31,10 +32,8 @@ interface FlowState {
    * built-in and mock verticals). Attributes feedback to the shared core.
    */
   coreId: string | null;
-  choices: {
-    frequencyCap: number;
-    priority: string;
-  };
+  /** The learner's beat-by-beat answers from the scenario run. */
+  selections: BeatSelection[];
 
   /** Module-library dashboard overlay (shown after sign-in / on return). */
   showDashboard: boolean;
@@ -48,20 +47,14 @@ interface FlowState {
   goTo: (scene: SceneId) => void;
   next: () => void;
   setProfile: (questionId: string, values: string[]) => void;
-  /** Swap the active vertical (e.g. for a generated module) and reset choices. */
+  /** Swap the active vertical (e.g. for a generated module) and reset the run. */
   setVertical: (vertical: Vertical, meta?: { coreId?: string | null }) => void;
-  setChoices: (choices: Partial<FlowState["choices"]>) => void;
-  /** Store the launch decision and advance to the outcome. */
-  launchSimulation: (choices: FlowState["choices"]) => void;
+  /** Store the scenario run and advance to the outcome. */
+  launchSimulation: (selections: BeatSelection[]) => void;
   /** Back to the simulation with previous choices intact. */
   retrySimulation: () => void;
   restart: () => void;
 }
-
-const choicesFor = (vertical: Vertical) => ({
-  frequencyCap: vertical.simulation.frequencyCap.default,
-  priority: vertical.simulation.priority.default,
-});
 
 export const useFlowStore = create<FlowState>((set, get) => ({
   hydrated: false,
@@ -71,7 +64,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   profile: defaultProfile(activeVertical.config),
   vertical: activeVertical,
   coreId: null,
-  choices: choicesFor(activeVertical),
+  selections: [],
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -96,7 +89,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             Math.max(session.step, 0),
             SCENE_ORDER.length - 1
           ),
-          choices: choicesFor(vertical),
+          selections: [],
           showDashboard: true,
         });
       } else if (user) {
@@ -135,7 +128,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       profile: defaultProfile(activeVertical.config),
       vertical: activeVertical,
       coreId: null,
-      choices: choicesFor(activeVertical),
+      selections: [],
     });
   },
 
@@ -155,17 +148,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     set({
       vertical,
       coreId: meta?.coreId ?? null,
-      choices: choicesFor(vertical),
+      selections: [],
       runCount: 0,
     });
   },
 
-  setChoices: (choices) =>
-    set((s) => ({ choices: { ...s.choices, ...choices } })),
-
-  launchSimulation: (choices) =>
+  launchSimulation: (selections) =>
     set((s) => ({
-      choices,
+      selections,
       runCount: s.runCount + 1,
       currentStep: SCENE_ORDER.indexOf("outcome"),
     })),
@@ -174,11 +164,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     set({ currentStep: SCENE_ORDER.indexOf("simulation") }),
 
   restart: () =>
-    set((s) => ({
+    set({
       currentStep: 0,
       runCount: 0,
-      choices: choicesFor(s.vertical),
-    })),
+      selections: [],
+    }),
 }));
 
 export function useCurrentScene(): SceneId {

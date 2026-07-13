@@ -71,11 +71,17 @@ describe("section prompts", () => {
     expect(prompt).not.toContain("Agent Dynamo");
   });
 
-  it("simulation system embeds the numeric mechanics and simulation exemplar", () => {
+  it("simulation system embeds scenario mechanics, archetypes, and the exemplar", () => {
     const prompt = buildSimulationSystemPrompt();
-    expect(prompt).toContain('"byCap"');
-    expect(prompt).toContain("lineItemName"); // wire-keys rule
+    expect(prompt).toContain('"byValue"'); // numeric beat rows in the exemplar
     expect(prompt).toContain(wire.simulation.productName);
+    for (const archetype of ["opsDashboard", "dealDesk", "studioBoard"]) {
+      expect(prompt).toContain(archetype);
+    }
+    expect(prompt).toContain("decisive: true");
+    // Research-brief texture that grounds the two new archetypes
+    expect(prompt).toContain("4.2x");
+    expect(prompt).toContain("change orders");
   });
 
   it("simulation user prompt embeds the foundation as context and threads errors", () => {

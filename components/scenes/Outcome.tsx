@@ -5,57 +5,88 @@ import {
   ArrowRight,
   CheckCircle2,
   RotateCcw,
+  Star,
   TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { evaluateSimulation, priorityNote } from "@/lib/content";
+import {
+  applySelections,
+  decisiveMeter,
+  endingFor,
+} from "@/lib/scenario/engine";
 import { useFlowStore, useVertical } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-function DeliveryBar({
+function MeterBar({
   label,
+  value,
+  unit,
   pct,
-  detail,
-  color,
+  tone,
+  decisive,
   delay,
 }: {
   label: string;
+  value: number;
+  unit: string;
   pct: number;
-  detail: string;
-  color: string;
+  tone: "good" | "warn" | "neutral";
+  decisive: boolean;
   delay: number;
 }) {
   const reduceMotion = useReducedMotion();
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="text-sm font-medium">{label}</span>
-        <span className="font-mono text-sm font-semibold tabular-nums">
-          {pct}%
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          {label}
+          {decisive && (
+            <Star
+              className="size-3 text-primary"
+              aria-label="Decided the outcome"
+            />
+          )}
+        </span>
+        <span
+          className={cn(
+            "font-mono text-sm font-semibold tabular-nums",
+            tone === "good" && "text-reach",
+            tone === "warn" && "text-risk"
+          )}
+        >
+          {Math.round(value)}
+          <span className="ml-0.5 text-xs font-normal text-muted-foreground">
+            {unit}
+          </span>
         </span>
       </div>
       <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted">
         <motion.div
-          className={cn("h-full rounded-full", color)}
+          className={cn(
+            "h-full rounded-full",
+            tone === "warn" ? "bg-risk" : decisive ? "bg-primary" : "bg-reach"
+          )}
           initial={{ width: reduceMotion ? `${pct}%` : "0%" }}
           animate={{ width: `${pct}%` }}
           transition={{ delay, duration: 0.9, ease: [0.32, 0.72, 0, 1] }}
         />
       </div>
-      <p className="mt-1.5 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }
 
 export function Outcome() {
-  const choices = useFlowStore((s) => s.choices);
+  const selections = useFlowStore((s) => s.selections);
   const retrySimulation = useFlowStore((s) => s.retrySimulation);
   const next = useFlowStore((s) => s.next);
   const reduceMotion = useReducedMotion();
 
   const vertical = useVertical();
-  const result = evaluateSimulation(vertical, choices);
-  const pNote = priorityNote(vertical, choices.priority);
+  const sim = vertical.simulation;
+  const finals = applySelections(sim, selections);
+  const decisive = decisiveMeter(sim);
+  const ending = endingFor(finals[decisive.id], vertical.decision.bands);
+  const result = vertical.outcomes[ending];
   const isWin = result.status === "win";
 
   const stagger = {
@@ -86,10 +117,12 @@ export function Outcome() {
             ) : (
               <TriangleAlert className="size-3.5" aria-hidden />
             )}
-            {isWin ? "Flight delivered" : "Flight at risk"}
+            {isWin ? "Day handled" : "Day at risk"}
           </span>
           <span className="font-mono text-xs text-muted-foreground">
-            cap {choices.frequencyCap}/user/day · {choices.priority} priority
+            {decisive.label.toLowerCase()} landed at{" "}
+            {Math.round(finals[decisive.id])}
+            {decisive.unit}
           </span>
         </motion.div>
 
@@ -111,37 +144,28 @@ export function Outcome() {
           variants={item}
           className="mt-8 space-y-6 rounded-2xl border border-border bg-card p-5 sm:p-6"
         >
-          <DeliveryBar
-            label="Unique reach"
-            pct={result.reachPct}
-            detail="Share of the target audience that saw the ad at least once."
-            color="bg-reach"
-            delay={0.3}
-          />
-          <DeliveryBar
-            label="Budget delivered"
-            pct={result.deliveryPct}
-            detail="Share of the contracted spend the ad server could actually serve."
-            color="bg-primary"
-            delay={0.45}
-          />
-
-          <div className="grid gap-3 border-t border-border pt-5 sm:grid-cols-3">
-            {result.metrics.map((m) => (
-              <div key={m.label}>
-                <p className="text-xs text-muted-foreground">{m.label}</p>
-                <p
-                  className={cn(
-                    "mt-0.5 font-mono text-sm font-semibold",
-                    m.tone === "good" && "text-reach",
-                    m.tone === "warn" && "text-risk"
-                  )}
-                >
-                  {m.value}
-                </p>
-              </div>
-            ))}
-          </div>
+          {sim.meters.map((meter, i) => {
+            const value = finals[meter.id] ?? meter.start;
+            const pct =
+              ((value - meter.min) / Math.max(1, meter.max - meter.min)) * 100;
+            const delta = value - meter.start;
+            const improved =
+              meter.goodDirection === "up" ? delta >= 0 : delta <= 0;
+            return (
+              <MeterBar
+                key={meter.id}
+                label={meter.label}
+                value={value}
+                unit={meter.unit}
+                pct={pct}
+                tone={
+                  meter.decisive ? "neutral" : improved ? "good" : "warn"
+                }
+                decisive={Boolean(meter.decisive)}
+                delay={0.3 + i * 0.15}
+              />
+            );
+          })}
         </motion.div>
 
         {result.risk && (
@@ -165,23 +189,6 @@ export function Outcome() {
           </motion.div>
         )}
 
-        {pNote && (
-          <motion.p
-            variants={item}
-            className="mt-4 rounded-2xl border border-border bg-card p-4 text-sm leading-relaxed text-muted-foreground sm:p-5"
-          >
-            <span
-              className={cn(
-                "font-semibold",
-                pNote.tone === "good" ? "text-reach" : "text-risk"
-              )}
-            >
-              Priority check —{" "}
-            </span>
-            {pNote.text}
-          </motion.p>
-        )}
-
         <motion.p
           variants={item}
           className="mt-6 max-w-xl text-sm leading-relaxed text-muted-foreground"
@@ -198,7 +205,7 @@ export function Outcome() {
             onClick={retrySimulation}
           >
             <RotateCcw data-icon="inline-start" aria-hidden />
-            Adjust and relaunch
+            Replay the day
           </Button>
           <Button size="lg" className="h-11 px-6" onClick={next}>
             {isWin ? "See what this unlocks" : "Continue anyway"}

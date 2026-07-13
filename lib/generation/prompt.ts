@@ -27,34 +27,8 @@ export function toWireFormat(vertical: Vertical): GeneratedVertical {
     intro: vertical.intro,
     lesson: vertical.lesson,
     briefing: vertical.briefing,
-    simulation: {
-      ...vertical.simulation,
-      nav: vertical.simulation.nav.map((section) => ({
-        section: section.section,
-        items: section.items.map((item) => ({
-          label: item.label,
-          active: item.active ?? false,
-          badge: item.badge ?? null,
-        })),
-      })),
-      forecast: {
-        label: vertical.simulation.forecast.label,
-        disclaimer: vertical.simulation.forecast.disclaimer,
-        byCap: Object.entries(vertical.simulation.forecast.byCap).map(
-          ([cap, p]) => ({ cap: Number(cap), ...p })
-        ),
-      },
-    },
-    decision: {
-      bands: vertical.decision.bands.map((b) => ({
-        max: b.max,
-        outcome: b.outcome as "low" | "balanced",
-      })),
-      thresholds: vertical.decision.thresholds,
-      priorityNotes: Object.entries(vertical.decision.priorityNotes).map(
-        ([priority, note]) => ({ priority, ...note })
-      ),
-    },
+    simulation: vertical.simulation,
+    decision: { bands: vertical.decision.bands },
     outcomes: {
       low: outcomeToWire(vertical, "low"),
       balanced: outcomeToWire(vertical, "balanced"),
@@ -147,7 +121,7 @@ You generate the FOUNDATION of one module as JSON: industry, role, intro, lesson
 
 - The lesson has 3–5 cards and MUST include one "terms" card (4–6 terms). Card kinds: "flow" (the industry's value chain, clickable stages), "terms", "pressures" (what the role is measured on), "timeline" (a day in the seat). Every card carries 2–4 followUps (scripted Q&A) and a graceful fallbackAnswer.
 - The briefing turns the lesson into an assignment: the mission, the two decisions the learner will make, 2–4 success criteria, and a 1–3 question knowledge check where exactly ONE option per question is correct.
-- The briefing's two decisions must map onto ONE consequential numeric decision (a slider) and one secondary priority-style choice — the simulation call will implement exactly those two.
+- The briefing's two decisions describe what the simulation will demand: (1) the role's single consequential numeric decision, and (2) the hardest judgment call the learner will face handling inbound pressure. A separate call generates that scenario on top of your foundation.
 ${CRAFT_RULE}
 ${EXPERT_NOTES_RULE}
 
@@ -212,23 +186,30 @@ export function buildSimulationSystemPrompt(): string {
 
 You generate the SIMULATION sections of one module as JSON: simulation, decision, outcomes, and assistant. The module's foundation (lesson and briefing) already exists and is provided in the request — your simulation must use its vocabulary and deliver exactly the assignment its briefing promises.
 
-## The simulation archetype
+## The scenario
 
-The simulation is a parameterized "operational dashboard" archetype: the learner configures a work item inside a fictional category-archetype tool (never a real vendor's product name), with locked contract fields, ONE consequential numeric decision rendered as a slider (the "frequencyCap" group — reuse its structure even if the domain decision is named differently, e.g. "reorder threshold" or "review SLA"), a secondary 3-option priority-style control, and a live forecast that reacts to the slider.
+The simulation is a beat-based "day in the seat": 5–7 inbound events (beats) the learner must handle inside a fictional category-archetype tool (never a real vendor's product name). Message beats arrive from named people over email/chat/call/ticket and offer 2–4 responses; exactly ONE beat is numeric — the role's consequential quantitative decision, rendered as a slider. Every response moves persistent meters, and where the meters land decides the ending.
+
+## Pick the archetype
+
+Choose simulation.archetype by the target role's native tool category:
+- "opsDashboard" — configure-and-monitor operational roles (campaign managers, ops, logistics): the numeric beat is a delivery/allocation setting.
+- "dealDesk" — quota-carrying sales roles (account executives, sales leads): a CRM/quote console. The numeric beat is the discount or pricing call. Speak the trade's language: pipeline, stage, guardrails, give/get, NRR, CAC payback, deal desk, clawback. Real texture to draw on: ~19% average win rates; customers acquired at 30%+ discounts churn at ~4.2x the rate; discounts past ~15% route to VP approval.
+- "studioBoard" — creative and review-owning roles (creative directors, account leads at agencies): a proofing/review board. The numeric beat is revision rounds or scope allowance on a fixed-fee engagement. Speak the trade's language: proofs, rounds, versions, change orders, scope creep, utilization, burn, retainer, goodwill work. Real texture: only ~1% of agencies bill all out-of-scope work; scope-crept projects overrun budgets ~27% on average; utilization above ~85% risks delivery failure and burnout.
 
 Non-negotiable mechanics:
-- simulation.campaign always uses exactly the keys lineItemName, advertiser, budget, currency, impressionsGoal, cpm, and flight, even when the domain has no ads (map the role's work item onto them, e.g. a loan book onto budget/impressionsGoal-style quantities).
-- forecast.byCap must contain exactly one entry per integer from frequencyCap.min to frequencyCap.max inclusive. Numbers must tell a coherent story: at low values one forecast metric is great and the other suffers; in a middle band both are healthy; at high values the trade-off reverses. reachPct and deliveryPct are 0–100.
-- decision.bands map slider values to outcomes: the first band whose max >= the chosen value wins; values above every band max fall through to the "high" outcome. Include a "low" band and a "balanced" band; every band max must be >= frequencyCap.min and < frequencyCap.max. Band boundaries must agree with the forecast numbers (the "balanced" range is where deliveryPct is at/near its best while reachPct is still strong).
-- outcomes.low / .balanced / .high: "balanced" is the win state (status "win", risk null); the other two are status "risk" with a risk callout. Verdicts are punchy; coaching explains the why in plain language.
-- outcome metric labels come from the forecast, so thresholds.reachGoodAt and thresholds.frequencyWasteAt must be consistent with the byCap numbers.
-- priority.options: 2–4 options; priority.default must be one of their values; decision.priorityNotes must contain one entry per option value (tone "good" for the sensible default, "warn" for the others).
+- simulation.meters: exactly 3. Exactly ONE has decisive: true — the tension axis of the role's core trade-off, where too LOW a final value produces the "low" ending (one failure mode) and too HIGH produces "high" (the opposite failure mode). The other two meters are narrative gauges with goodDirection set.
+- simulation.beats: 5–7, exactly one kind "numeric". Message beats have 2–4 choices; every choice has effects (meter id + delta) and a one-line consequence in the sender's world. Effects may only reference declared meter ids.
+- The numeric beat's byValue must contain exactly one row per integer from control.min to control.max inclusive; each row's note narrates the forecast at that value; its effects must move the decisive meter monotonically so low values land in the "low" band and high values past the last band.
+- decision.bands are over the decisive meter's FINAL value (start plus all chosen deltas), ascending by max; include a "balanced" band (the win). Every ending — low, balanced, high — must be reachable by some path of choices: check that start + minimum possible deltas reaches the low band and start + maximum possible deltas exceeds the last band.
+- simulation.header: 3–6 locked contract facts (who, how much, by when).
+- outcomes.low / .balanced / .high: "balanced" is the win state (status "win", risk null); the other two are status "risk" with a risk callout. Verdicts are punchy; summaries narrate what the meters mean; coaching explains the why in plain language.
 - The fictional simulation tool name must be plausible for the industry but not a real product.
 ${CRAFT_RULE}
 
-## Simulation exemplar
+## Scenario exemplar
 
-The following simulation sections (ad-tech/media, campaign manager) are expert-authored and show the exact wire format, depth, and voice expected. Match their quality; do not copy their content into other industries.
+The following simulation sections (ad-tech/media, campaign manager, opsDashboard archetype) are expert-authored and show the exact wire format, beat texture, and meter math expected. Match their quality; do not copy their content into other industries.
 
 ${exemplar}
 

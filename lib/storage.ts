@@ -36,6 +36,16 @@ export interface SavedModule {
   vertical: Vertical;
 }
 
+/**
+ * Saved modules from before the Tier B scenario engine carry a v1
+ * simulation shape the app can no longer render — drop them on read
+ * (intentionally unmigrated; regenerating is cheap via the core cache).
+ */
+export function isRenderableModule(module: SavedModule): boolean {
+  const sim = module.vertical?.simulation as { archetype?: unknown } | undefined;
+  return typeof sim?.archetype === "string";
+}
+
 /** Where the user is in the flow, for resume-on-reload. */
 export interface SessionSnapshot {
   step: number;
@@ -144,7 +154,7 @@ const localStorageAdapter: StorageAdapter = {
   },
 
   async listModules() {
-    return read<SavedModule[]>(KEYS.modules) ?? [];
+    return (read<SavedModule[]>(KEYS.modules) ?? []).filter(isRenderableModule);
   },
   async saveModule(module) {
     const modules = (read<SavedModule[]>(KEYS.modules) ?? []).filter(

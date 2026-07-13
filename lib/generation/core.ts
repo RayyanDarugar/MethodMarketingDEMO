@@ -4,8 +4,11 @@ import type { Vertical } from "@/lib/content";
  * Core = a Vertical minus its product-personalized payoff. Cores are safe to
  * share across users/products; bump SCHEMA_VERSION when the wire format
  * changes so stale cores stop matching.
+ *
+ * v2 (2026-07-10): Tier B scenario engine — simulation became a beat-based
+ * ScenarioSimulation; v1 cores (frequencyCap/forecast shape) are retired.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export type VerticalCore = Omit<Vertical, "payoff">;
 

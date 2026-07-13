@@ -121,7 +121,7 @@ function TextField({
 
 type GenState =
   | { status: "idle" }
-  | { status: "running"; label: string; startedAt: number }
+  | { status: "running"; label: string; startedAt: number; elapsedMs: number }
   | { status: "error"; message: string };
 
 function formatElapsed(ms: number): string {
@@ -205,11 +205,21 @@ export function Setup() {
   const generate = async () => {
     const startedAt = Date.now();
     const stage = (label: string) =>
-      setGen({ status: "running", label, startedAt });
+      setGen((g) => ({
+        status: "running",
+        label,
+        startedAt,
+        elapsedMs: g.status === "running" ? g.elapsedMs : 0,
+      }));
     stage("Checking the module library…");
-    // Re-render each second so the elapsed counter ticks.
+    // Tick the elapsed counter once a second; Date.now() is read here (an
+    // effect), not during render.
     stageTimer.current = setInterval(() => {
-      setGen((g) => (g.status === "running" ? { ...g } : g));
+      setGen((g) =>
+        g.status === "running"
+          ? { ...g, elapsedMs: Date.now() - g.startedAt }
+          : g
+      );
     }, 1000);
 
     interface GenerateResult {
@@ -510,7 +520,7 @@ export function Setup() {
                   role="status"
                 >
                   {gen.status === "running"
-                    ? `${gen.label} ${formatElapsed(Date.now() - gen.startedAt)}`
+                    ? `${gen.label} ${formatElapsed(gen.elapsedMs)}`
                     : "Almost there…"}
                 </motion.span>
               </AnimatePresence>

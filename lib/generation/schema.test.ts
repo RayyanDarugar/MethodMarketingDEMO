@@ -84,41 +84,27 @@ describe("validateFoundationWire", () => {
 describe("validateSimulationWire", () => {
   const sim = GeneratedSimulationSchema.parse(toWireFormat(activeVertical));
 
-  it("passes the exemplar", () => {
+  it("passes the exemplar scenario", () => {
     expect(validateSimulationWire(sim)).toEqual([]);
   });
 
-  it("flags a byCap gap", () => {
-    const broken = {
-      ...sim,
-      simulation: {
-        ...sim.simulation,
-        forecast: {
-          ...sim.simulation.forecast,
-          byCap: sim.simulation.forecast.byCap.slice(1),
-        },
-      },
-    };
-    expect(validateSimulationWire(broken).join(" ")).toContain("byCap");
+  it("delegates scenario rules to the engine (byValue gap)", () => {
+    const broken = structuredClone(sim);
+    const numeric = broken.simulation.beats.find((b) => b.kind === "numeric");
+    if (numeric?.kind === "numeric") numeric.byValue = numeric.byValue.slice(1);
+    expect(validateSimulationWire(broken).join(" ")).toContain("byValue");
   });
 
-  it("flags a missing balanced band and out-of-range default", () => {
+  it("flags a missing balanced band", () => {
     const broken = {
       ...sim,
-      simulation: {
-        ...sim.simulation,
-        frequencyCap: {
-          ...sim.simulation.frequencyCap,
-          default: sim.simulation.frequencyCap.max + 5,
-        },
-      },
       decision: {
-        ...sim.decision,
-        bands: sim.decision.bands.map((b) => ({ ...b, outcome: "low" as const })),
+        bands: sim.decision.bands.map((b) => ({
+          ...b,
+          outcome: "low" as const,
+        })),
       },
     };
-    const errors = validateSimulationWire(broken).join(" ");
-    expect(errors).toContain("balanced");
-    expect(errors).toContain("default");
+    expect(validateSimulationWire(broken).join(" ")).toContain("balanced");
   });
 });

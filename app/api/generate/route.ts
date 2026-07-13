@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { activeVertical, type Vertical } from "@/lib/content";
+import type { Vertical } from "@/lib/content";
 import { mockGenerate } from "@/lib/generation/mock";
 import {
   buildPayoffSystemPrompt,

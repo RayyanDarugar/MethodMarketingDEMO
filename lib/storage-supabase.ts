@@ -1,10 +1,11 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type {
-  SavedModule,
-  SessionSnapshot,
-  SignInArgs,
-  StorageAdapter,
-  UserProfile,
+import {
+  isRenderableModule,
+  type SavedModule,
+  type SessionSnapshot,
+  type SignInArgs,
+  type StorageAdapter,
+  type UserProfile,
 } from "@/lib/storage";
 import type { Vertical } from "@/lib/content";
 
@@ -253,16 +254,18 @@ export function createSupabaseAdapter(fallback: StorageAdapter): StorageAdapter 
           .order("created_at", { ascending: false })
           .limit(10);
         if (error) throw error;
-        return (data ?? []).map((row) => ({
-          id: row.id,
-          industry: row.industry,
-          role: row.role,
-          productName: row.product_name,
-          source: row.source as SavedModule["source"],
-          coreId: row.core_id ?? null,
-          createdAt: row.created_at,
-          vertical: row.vertical as Vertical,
-        }));
+        return (data ?? [])
+          .map((row) => ({
+            id: row.id,
+            industry: row.industry,
+            role: row.role,
+            productName: row.product_name,
+            source: row.source as SavedModule["source"],
+            coreId: row.core_id ?? null,
+            createdAt: row.created_at,
+            vertical: row.vertical as Vertical,
+          }))
+          .filter(isRenderableModule);
       } catch (error) {
         warn(error);
         return fallback.listModules();

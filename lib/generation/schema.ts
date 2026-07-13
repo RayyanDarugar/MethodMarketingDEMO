@@ -1,10 +1,6 @@
 import { z } from "zod";
-import type {
-  ConfigContent,
-  DecisionLogic,
-  Projection,
-  Vertical,
-} from "@/lib/content";
+import type { ConfigContent, Vertical } from "@/lib/content";
+import { validateScenario } from "@/lib/scenario/engine";
 
 /**
  * Generation wire format + validation.
@@ -37,7 +33,6 @@ export type GenerationRequest = z.infer<typeof GenerationRequestSchema>;
 // Wire schema (what the model emits)
 // ---------------------------------------------------------------------------
 
-const Tone = z.enum(["good", "warn"]);
 
 const FollowUp = z.object({
   question: z.string(),
@@ -229,6 +224,89 @@ export const GeneratedPayoffSchema = z.object({
 
 export type GeneratedPayoff = z.infer<typeof GeneratedPayoffSchema>;
 
+// ---------------------------------------------------------------------------
+// Scenario simulation wire schema — mirrors lib/scenario/types.ts (the app
+// shape and wire shape are identical in v2; the tiling tests keep them
+// aligned). Structural determinism rules live in lib/scenario/engine.ts.
+// ---------------------------------------------------------------------------
+
+const EffectSchema = z.object({
+  meter: z.string(),
+  delta: z.number(),
+});
+
+const MeterSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  unit: z.string(),
+  start: z.number(),
+  min: z.number(),
+  max: z.number(),
+  goodDirection: z.enum(["up", "down"]),
+  decisive: z.boolean().optional(),
+});
+
+const MessageBeatSchema = z.object({
+  kind: z.literal("message"),
+  id: z.string(),
+  channel: z.enum(["email", "chat", "call", "ticket"]),
+  from: z.object({ name: z.string(), role: z.string() }),
+  subject: z.string().optional(),
+  body: z.string(),
+  choices: z
+    .array(
+      z.object({
+        label: z.string(),
+        effects: z.array(EffectSchema),
+        consequence: z.string(),
+      })
+    )
+    .min(2)
+    .max(4),
+});
+
+const NumericBeatSchema = z.object({
+  kind: z.literal("numeric"),
+  id: z.string(),
+  prompt: z.string(),
+  control: z.object({
+    label: z.string(),
+    unit: z.string(),
+    min: z.number().int(),
+    max: z.number().int(),
+    default: z.number().int(),
+  }),
+  byValue: z.array(
+    z.object({
+      value: z.number().int(),
+      effects: z.array(EffectSchema),
+      note: z.string(),
+    })
+  ),
+});
+
+const ScenarioSimulationSchema = z.object({
+  archetype: z.enum(["opsDashboard", "dealDesk", "studioBoard"]),
+  productName: z.string(),
+  environmentLabel: z.string(),
+  header: z
+    .array(
+      z.object({
+        label: z.string(),
+        value: z.string(),
+        sublabel: z.string().optional(),
+      })
+    )
+    .min(3)
+    .max(6),
+  meters: z.array(MeterSchema).min(3).max(3),
+  beats: z
+    .array(z.discriminatedUnion("kind", [MessageBeatSchema, NumericBeatSchema]))
+    .min(5)
+    .max(7),
+  launchLabel: z.string(),
+});
+
 const OutcomeResultSchema = z.object({
   status: z.enum(["win", "risk"]),
   verdict: z.string(),
@@ -270,89 +348,12 @@ export const GeneratedVerticalSchema = z.object({
     quiz: z.array(QuizQuestionSchema).min(1).max(3),
     cta: z.string(),
   }),
-  simulation: z.object({
-    productName: z.string(),
-    environmentLabel: z.string(),
-    nav: z
-      .array(
-        z.object({
-          section: z.string(),
-          items: z
-            .array(
-              z.object({
-                label: z.string(),
-                active: z.boolean(),
-                badge: z.string().nullable(),
-              })
-            )
-            .min(1)
-            .max(4),
-        })
-      )
-      .min(2)
-      .max(4),
-    breadcrumb: z.array(z.string()).min(2).max(4),
-    taskTitle: z.string(),
-    taskBrief: z.string(),
-    campaign: z.object({
-      lineItemName: z.string(),
-      advertiser: z.string(),
-      budget: z.number(),
-      currency: z.string(),
-      impressionsGoal: z.number(),
-      cpm: z.number(),
-      flight: z.string(),
-    }),
-    frequencyCap: z.object({
-      label: z.string(),
-      unit: z.string(),
-      helper: z.string(),
-      min: z.number().int(),
-      max: z.number().int(),
-      default: z.number().int(),
-    }),
-    priority: z.object({
-      label: z.string(),
-      helper: z.string(),
-      options: z
-        .array(
-          z.object({
-            value: z.string(),
-            label: z.string(),
-            description: z.string(),
-          })
-        )
-        .min(2)
-        .max(4),
-      default: z.string(),
-    }),
-    forecast: z.object({
-      label: z.string(),
-      disclaimer: z.string(),
-      /** One entry per integer cap value, min..max inclusive. */
-      byCap: z.array(
-        z.object({
-          cap: z.number().int(),
-          reachPct: z.number(),
-          deliveryPct: z.number(),
-          avgFrequency: z.number(),
-        })
-      ),
-    }),
-    launchLabel: z.string(),
-  }),
+  simulation: ScenarioSimulationSchema,
   decision: z.object({
     bands: z
       .array(z.object({ max: z.number().int(), outcome: z.enum(["low", "balanced"]) }))
       .min(1)
       .max(3),
-    thresholds: z.object({
-      reachGoodAt: z.number(),
-      frequencyWasteAt: z.number(),
-    }),
-    priorityNotes: z.array(
-      z.object({ priority: z.string(), tone: Tone, text: z.string() })
-    ),
   }),
   outcomes: z.object({
     low: OutcomeResultSchema,
@@ -419,50 +420,9 @@ export function validateFoundationWire(f: GeneratedFoundation): string[] {
 }
 
 export function validateSimulationWire(s: GeneratedSimulation): string[] {
-  const errors: string[] = [];
-  const cap = s.simulation.frequencyCap;
-
-  if (!(cap.min < cap.max)) {
-    errors.push(`frequencyCap.min (${cap.min}) must be < max (${cap.max}).`);
-  }
-  if (cap.default < cap.min || cap.default > cap.max) {
-    errors.push(`frequencyCap.default must be within [min, max].`);
-  }
-
-  const caps = new Set(s.simulation.forecast.byCap.map((row) => row.cap));
-  for (let value = cap.min; value <= cap.max; value++) {
-    if (!caps.has(value)) {
-      errors.push(`forecast.byCap is missing an entry for cap=${value}.`);
-    }
-  }
-
-  const bandMaxes = s.decision.bands.map((b) => b.max);
-  if ([...bandMaxes].sort((a, b) => a - b).join() !== bandMaxes.join()) {
-    errors.push("decision.bands must be sorted by ascending max.");
-  }
-  if (bandMaxes.some((m) => m < cap.min || m >= cap.max)) {
-    errors.push(
-      "every decision band max must lie within [cap.min, cap.max) so the 'high' fallback is reachable."
-    );
-  }
-  if (!s.decision.bands.some((b) => b.outcome === "balanced")) {
-    errors.push("decision.bands must include a 'balanced' band (the win state).");
-  }
-
-  const priorityValues = new Set(s.simulation.priority.options.map((o) => o.value));
-  if (!priorityValues.has(s.simulation.priority.default)) {
-    errors.push("priority.default must be one of priority.options[].value.");
-  }
-  const notedPriorities = new Set(s.decision.priorityNotes.map((n) => n.priority));
-  for (const value of priorityValues) {
-    if (!notedPriorities.has(value)) {
-      errors.push(
-        `decision.priorityNotes is missing an entry for priority "${value}".`
-      );
-    }
-  }
-
-  return errors;
+  // Structural + reachability rules live in the scenario engine — the same
+  // math the app uses at play time validates the wire at generation time.
+  return validateScenario(s.simulation, s.decision.bands);
 }
 
 // ---------------------------------------------------------------------------
@@ -486,20 +446,6 @@ export function toVertical(
   generated: GeneratedVertical,
   config: ConfigContent
 ): Vertical {
-  const byCap: Record<number, Projection> = {};
-  for (const row of generated.simulation.forecast.byCap) {
-    byCap[row.cap] = {
-      reachPct: row.reachPct,
-      deliveryPct: row.deliveryPct,
-      avgFrequency: row.avgFrequency,
-    };
-  }
-
-  const priorityNotes: DecisionLogic["priorityNotes"] = {};
-  for (const note of generated.decision.priorityNotes) {
-    priorityNotes[note.priority] = { tone: note.tone, text: note.text };
-  }
-
   const outcomes = Object.fromEntries(
     (["low", "balanced", "high"] as const).map((key) => {
       const { risk, ...rest } = generated.outcomes[key];
@@ -518,29 +464,8 @@ export function toVertical(
       cards: generated.lesson.cards,
     },
     briefing: generated.briefing,
-    simulation: {
-      ...generated.simulation,
-      nav: generated.simulation.nav.map((section) => ({
-        section: section.section,
-        items: section.items.map((item) => ({
-          label: item.label,
-          ...(item.active ? { active: true } : {}),
-          ...(item.badge ? { badge: item.badge } : {}),
-        })),
-      })),
-      forecast: {
-        label: generated.simulation.forecast.label,
-        disclaimer: generated.simulation.forecast.disclaimer,
-        byCap,
-      },
-    },
-    decision: {
-      input: "frequencyCap",
-      bands: generated.decision.bands,
-      fallback: "high",
-      thresholds: generated.decision.thresholds,
-      priorityNotes,
-    },
+    simulation: generated.simulation,
+    decision: { bands: generated.decision.bands },
     outcomes,
     assistant: generated.assistant,
     payoff: generated.payoff,
@@ -567,43 +492,8 @@ export function validateVertical(vertical: Vertical): {
   const errors: string[] = [];
   const warnings: string[] = [];
   const { simulation, decision, briefing, lesson } = vertical;
-  const cap = simulation.frequencyCap;
 
-  if (!(cap.min < cap.max)) {
-    errors.push(`frequencyCap.min (${cap.min}) must be < max (${cap.max}).`);
-  }
-  if (cap.default < cap.min || cap.default > cap.max) {
-    errors.push(`frequencyCap.default must be within [min, max].`);
-  }
-
-  for (let value = cap.min; value <= cap.max; value++) {
-    if (!simulation.forecast.byCap[value]) {
-      errors.push(`forecast.byCap is missing an entry for cap=${value}.`);
-    }
-  }
-
-  const bandMaxes = decision.bands.map((b) => b.max);
-  if ([...bandMaxes].sort((a, b) => a - b).join() !== bandMaxes.join()) {
-    errors.push("decision.bands must be sorted by ascending max.");
-  }
-  if (bandMaxes.some((m) => m < cap.min || m >= cap.max)) {
-    errors.push(
-      "every decision band max must lie within [cap.min, cap.max) so the 'high' fallback is reachable."
-    );
-  }
-  if (!decision.bands.some((b) => b.outcome === "balanced")) {
-    errors.push("decision.bands must include a 'balanced' band (the win state).");
-  }
-
-  const priorityValues = new Set(simulation.priority.options.map((o) => o.value));
-  if (!priorityValues.has(simulation.priority.default)) {
-    errors.push("priority.default must be one of priority.options[].value.");
-  }
-  for (const value of priorityValues) {
-    if (!decision.priorityNotes[value]) {
-      errors.push(`decision.priorityNotes is missing an entry for priority "${value}".`);
-    }
-  }
+  errors.push(...validateScenario(simulation, decision.bands));
 
   for (const q of briefing.quiz) {
     const correct = q.options.filter((o) => o.correct).length;

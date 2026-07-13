@@ -38,7 +38,7 @@ const BodySchema = z.object({
 
 /** Map an assembled-validation error message to the section that owns it. */
 function sectionForError(message: string): 1 | 2 {
-  return /frequencyCap|forecast|byCap|band|priority|threshold|outcome/i.test(
+  return /meter|beat|byValue|band|decisive|scenario|simulation|outcome/i.test(
     message
   )
     ? 2
